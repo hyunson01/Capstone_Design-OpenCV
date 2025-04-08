@@ -97,9 +97,6 @@
 
 import cv2
 import numpy as np
-<<<<<<< HEAD
-from config import board_height_cm, board_width_cm, grid_width, grid_height, cell_size
-=======
 
 # config.py 불필요
 # from config import grid_array, board_height_cm, board_width_cm, grid_width, grid_height, cell_size
@@ -110,7 +107,6 @@ board_width_cm = 30
 grid_width = 600    # 12*50
 grid_height = 600
 cell_size = 50
->>>>>>> 2a2ebcd35adb08fa2b43280641b59c6f47880fb5
 
 def grid_ini(rows=12, cols=12):
     return np.zeros((rows, cols), dtype=int)
@@ -128,15 +124,9 @@ def trackbar(val):
 
 def slider_create():
     cv2.namedWindow("Detected Rectangle")
-<<<<<<< HEAD
-    cv2.createTrackbar("Brightness Threshold", "Detected Rectangle", 100, 255, trackbar)
-    cv2.createTrackbar("Min Aspect Ratio", "Detected Rectangle", 10, 20, trackbar)  # 기본값 1.2
-    cv2.createTrackbar("Max Aspect Ratio", "Detected Rectangle", 15, 20, trackbar)  # 기본값 1.5
-=======
     cv2.createTrackbar("Brightness Threshold", "Detected Rectangle", 120, 255, trackbar)
     cv2.createTrackbar("Min Aspect Ratio", "Detected Rectangle", 10, 20, trackbar)
     cv2.createTrackbar("Max Aspect Ratio", "Detected Rectangle", 15, 20, trackbar)
->>>>>>> 2a2ebcd35adb08fa2b43280641b59c6f47880fb5
 
 def slider_value():
     brightness_threshold = cv2.getTrackbarPos("Brightness Threshold", "Detected Rectangle")
@@ -148,12 +138,6 @@ def slider_value():
 def grid_visual(grid_array):
     visual = np.ones((grid_height, grid_width, 3), dtype=np.uint8) * 255
 
-<<<<<<< HEAD
-def grid_visual(grid_array):
-    grid_visual = np.ones((grid_height, grid_width, 3), dtype=np.uint8) * 255
-    
-=======
->>>>>>> 2a2ebcd35adb08fa2b43280641b59c6f47880fb5
     for i in range(grid_array.shape[0]):
         for j in range(grid_array.shape[1]):
             cell_x = j * cell_size
@@ -174,16 +158,8 @@ def grid_visual(grid_array):
 is_mouse_pressed = False
 last_toggled = None
 
-<<<<<<< HEAD
-
-def toggle_cell(grid_array, row, col):
-    grid_array[row, col] = 1 - grid_array[row, col]  # 값 반전
-
-=======
 # mouse_callback(grid_array)를 받게 수정 ✅
->>>>>>> 2a2ebcd35adb08fa2b43280641b59c6f47880fb5
 def mouse_callback(event, x, y, flags, param):
-    grid_array=param
     global is_mouse_pressed, last_toggled
 
     grid_array = param   # 여기서 param으로 grid_array 받아쓰기
@@ -193,14 +169,6 @@ def mouse_callback(event, x, y, flags, param):
 
     if event == cv2.EVENT_LBUTTONDOWN:
         is_mouse_pressed = True
-<<<<<<< HEAD
-        toggle_cell(grid_array, row, col)
-        last_toggled = (row, col)
-
-    elif event == cv2.EVENT_MOUSEMOVE and is_mouse_pressed:  # 드래그 중
-        if last_toggled != (row, col):  # 같은 칸이면 무시
-            toggle_cell(grid_array, row, col)
-=======
         grid_array[row, col] = 1 - grid_array[row, col]
         last_toggled = (row, col)
         cv2.imshow("Grid", grid_visual(grid_array))
@@ -210,7 +178,6 @@ def mouse_callback(event, x, y, flags, param):
             grid_array[row, col] = 1 - grid_array[row, col]
             last_toggled = (row, col)
             cv2.imshow("Grid", grid_visual(grid_array))
->>>>>>> 2a2ebcd35adb08fa2b43280641b59c6f47880fb5
 
     elif event == cv2.EVENT_LBUTTONUP:
         is_mouse_pressed = False

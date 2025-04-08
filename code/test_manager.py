@@ -8,11 +8,7 @@ import cv2
 import numpy as np
 from grid import load_grid
 from visual import grid_visual, cell_size
-<<<<<<< HEAD
 from cbs_manager import CBSManager
-=======
-from cbs_manager import CBSManager  # 앞서 만든 CBSManager 사용
->>>>>>> 2a2ebcd35adb08fa2b43280641b59c6f47880fb5
 from visualize import Animation
 
 # 전역 변수
@@ -41,16 +37,10 @@ def mouse_event(event, x, y, flags, param):
         grid_array = load_grid()
         map_array = grid_array.astype(bool)
 
-<<<<<<< HEAD
         manager = CBSManager(solver_type="CBS", disjoint=True, visualize_result=False)
         manager.load_instance(map_array, start_points, goal_points)
         new_paths = manager.run()
         # new_paths = apply_start_delays(new_paths, starts, delays)
-=======
-        manager = CBSManager(solver_type="ICBS", disjoint=True, visualize_result=False)
-        manager.load_instance(map_array, start_points, goal_points)
-        new_paths = manager.run()
->>>>>>> 2a2ebcd35adb08fa2b43280641b59c6f47880fb5
 
         if new_paths:
             paths.clear()
@@ -74,7 +64,6 @@ def draw_paths(vis_img, paths):
             overlay = vis_img.copy()
             cv2.rectangle(overlay, (x, y), (x + cell_size, y + cell_size), color, -1)
             cv2.addWeighted(overlay, 0.3, vis_img, 0.7, 0, vis_img)
-<<<<<<< HEAD
             
             
 def apply_start_delays(paths, starts, delays):
@@ -84,8 +73,6 @@ def apply_start_delays(paths, starts, delays):
         hold = [starts[i]] * delay
         delayed_paths.append(hold + path)
     return delayed_paths
-=======
->>>>>>> 2a2ebcd35adb08fa2b43280641b59c6f47880fb5
 
 
 def main():
@@ -122,10 +109,7 @@ def main():
                 print("Playing animation of last CBS result...")
                 animation = Animation(load_grid().astype(bool), start_points, goal_points, paths)
                 animation.show()
-<<<<<<< HEAD
                 animation.save("demo.gif", speed=1.0)
-=======
->>>>>>> 2a2ebcd35adb08fa2b43280641b59c6f47880fb5
             else:
                 print("No paths available to animate.")
 

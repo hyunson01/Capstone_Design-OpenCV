@@ -1,13 +1,3 @@
-<<<<<<< HEAD
-=======
-import sys
-import os
-
-# D:\git\MAPF-ICBS\code 경로를 추가
-sys.path.append(r"D:\git\MAPF-ICBS\code")
-
-
->>>>>>> 2a2ebcd35adb08fa2b43280641b59c6f47880fb5
 from cbs_basic import CBSSolver
 from icbs_cardinal_bypass import ICBS_CB_Solver
 from icbs_complete import ICBS_Solver
@@ -16,11 +6,7 @@ from single_agent_planner import get_sum_of_cost
 
 
 class CBSManager:
-<<<<<<< HEAD
     def __init__(self, solver_type="ICBS", disjoint=False, visualize_result=True):
-=======
-    def __init__(self, solver_type="CBS", disjoint=False, visualize_result=True):
->>>>>>> 2a2ebcd35adb08fa2b43280641b59c6f47880fb5
         self.solver_type = solver_type
         self.disjoint = disjoint
         self.visualize_result = visualize_result
