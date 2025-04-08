@@ -7,7 +7,8 @@ from tracking import TrackingManager
 from grid import save_grid, load_grid
 from visual import mouse_callback, grid_visual, grid_tag_visual, info_tag, slider_create
 from config import tag_info, object_points, camera_matrix, dist_coeffs,cbs_path, arguments
-from trans import  run_cbs_manager, generate_movement_commands
+from cbs_runner import  run_cbs_manager
+from movement_generator import generate_movement_commands
 
 def main():
     cap, fps = camera_open()
