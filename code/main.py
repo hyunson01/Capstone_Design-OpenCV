@@ -7,7 +7,7 @@ from tracking import TrackingManager
 from grid import save_grid, load_grid
 from visual import mouse_callback, grid_visual, grid_tag_visual, info_tag, slider_create
 from config import tag_info, object_points, camera_matrix, dist_coeffs,cbs_path, arguments
-from trans import  export_cbs, run_cbs, generate_movement_commands
+from trans import  run_cbs_manager, generate_movement_commands
 
 def main():
     cap, fps = camera_open()
@@ -62,11 +62,9 @@ def main():
             break
         elif key == ord('s'):
             save_grid(grid_array)
-        elif key == ord('x'):
-            export_cbs(grid_array, tag_info)
         elif key == ord('c'):
-            cbs_path=run_cbs()
-            generate_movement_commands(cbs_path)
+            agents = run_cbs_manager(grid_array, tag_info)
+            generate_movement_commands(agents)
 
     cap.release()
     cv2.destroyAllWindows()

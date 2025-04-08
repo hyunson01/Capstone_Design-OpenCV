@@ -3,6 +3,7 @@ from icbs_cardinal_bypass import ICBS_CB_Solver
 from icbs_complete import ICBS_Solver
 from visualize import Animation
 from single_agent_planner import get_sum_of_cost
+from path_relay import set_paths
 
 
 class CBSManager:
@@ -11,10 +12,11 @@ class CBSManager:
         self.disjoint = disjoint
         self.visualize_result = visualize_result
 
-    def load_instance(self, my_map, starts, goals):
+    def load_instance(self, my_map, starts, goals, ids):
         self.my_map = my_map
         self.starts = starts
         self.goals = goals
+        self.ids = ids
 
     def create_solver(self):
         if self.solver_type == "CBS":
@@ -36,9 +38,11 @@ class CBSManager:
 
         paths, nodes_generated, nodes_expanded = result
         cost = get_sum_of_cost(paths)
+
+        set_paths(self.ids, self.starts, paths)
+
         print(f"Total cost: {cost}")
         print(f"Nodes generated: {nodes_generated}, Nodes expanded: {nodes_expanded}")
-
         if self.visualize_result:
             animation = Animation(self.my_map, self.starts, self.goals, paths)
             animation.show()

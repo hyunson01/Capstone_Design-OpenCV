@@ -1,5 +1,6 @@
 import sys
 import os
+from path_relay import get_agent
 
 # D:\git\MAPF-ICBS\code 경로를 추가
 sys.path.append(r"D:\git\MAPF-ICBS\code")
@@ -15,6 +16,7 @@ from visualize import Animation
 start_points = []
 goal_points = []
 paths = []
+agent_ids = []
 current_agent = 0
 
 # 마우스 콜백 함수
@@ -26,8 +28,10 @@ def mouse_event(event, x, y, flags, param):
         return
 
     if event == cv2.EVENT_LBUTTONDOWN:
+        agent_id = len(start_points)
         print(f"Start set at ({row}, {col})")
         start_points.append((row, col))
+        agent_ids.append(agent_id)
     elif event == cv2.EVENT_RBUTTONDOWN:
         print(f"Goal set at ({row}, {col})")
         goal_points.append((row, col))
@@ -37,8 +41,9 @@ def mouse_event(event, x, y, flags, param):
         grid_array = load_grid()
         map_array = grid_array.astype(bool)
 
+        # CBSManager에 id 리스트를 추가로 전달한다.
         manager = CBSManager(solver_type="CBS", disjoint=True, visualize_result=False)
-        manager.load_instance(map_array, start_points, goal_points)
+        manager.load_instance(map_array, start_points, goal_points, agent_ids)
         new_paths = manager.run()
         # new_paths = apply_start_delays(new_paths, starts, delays)
 
@@ -112,6 +117,15 @@ def main():
                 animation.save("demo.gif", speed=1.0)
             else:
                 print("No paths available to animate.")
+
+        elif key == ord('m'):  # ✅ m 키 누르면 agents 출력
+            agents = get_agent()
+            if agents is not None:
+                print("--- Current Agents ---")
+                for agent in agents:
+                    print(agent)
+            else:
+                print("No agents stored yet.")
 
     cv2.destroyAllWindows()
 
