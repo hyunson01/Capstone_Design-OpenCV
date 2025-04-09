@@ -12,7 +12,8 @@ from cbs.cbs_manager import CBSManager
 from cbs.agent import Agent
 from visualize import Animation
 from simulator import Simulator
-from fake_mqtt import FakeMQTTClient
+from fake_mqtt import FakeMQTTBroker
+from path_to_commands import path_to_commands
 
 # 전역 변수
 agents = []
@@ -20,7 +21,7 @@ paths = []
 current_agent = 0
 manager = None
 sim = None
-client = FakeMQTTClient()
+broker = FakeMQTTBroker()
 
 # 마우스 콜백 함수
 def mouse_event(event, x, y, flags, param):
@@ -81,15 +82,11 @@ def apply_start_delays(paths, starts, delays):
 
 
 def compute_cbs(sim=None):
-    """
-    sim=None 일 때: 전역 paths를 갱신
-    sim!=None 일 때: sim.pending_paths에 새 경로를 세팅하고 시뮬레이터를 재개
-    """
-    # CBS 계산 전 시뮬레이터 일시정지
+    global broker  # 추가
     if sim:
+        sim.robots.clear()   # ✅ sim이 None이 아닐 때만 clear
         sim.paused = True
 
-    # 현재 에이전트 위치(start/goal)로부터 CBS 재계산
     grid_array = load_grid()
     map_array = grid_array.astype(bool)
     manager = CBSManager(solver_type="CBS", disjoint=True, visualize_result=False)
@@ -100,14 +97,21 @@ def compute_cbs(sim=None):
         print("No solution found.")
     else:
         if sim:
-            # 시뮬레이터용: pending_paths 설정 후 내부 시간 리셋
-            sim.set_pending_paths(new_paths)
-            sim.time_step = 0
-            sim.substep = 0
-            print("New CBS paths ready!")
-            sim.paused = False
+            print("New CBS paths ready! Sending commands to robots...")
+
+            # ✅ 각 로봇을 시뮬레이터에 추가
+            for agent in agents:
+                sim.add_robot(agent.id, broker, start_pos=agent.start)
+
+            # ✅ 명령어 변환 및 publish
+            for agent_id, path in enumerate(new_paths):
+                commands = path_to_commands(path, initial_dir="north")
+                print(f"Robot {agent_id} 명령어 시퀀스:", commands)
+                for command in commands:
+                    topic = f"robot/{agent_id}/move"
+                    broker.publish(topic, command)
+
         else:
-            # 마우스 이벤트용: 전역 paths 갱신
             paths.clear()
             paths.extend(new_paths)
             print("Paths updated via mouse_event.")
@@ -118,7 +122,7 @@ def main():
     cv2.namedWindow("CBS Grid")
     cv2.setMouseCallback("CBS Grid", mouse_event)
 
-    sim = Simulator(grid_array.astype(bool), agents, colors=COLORS)
+    sim = Simulator(grid_array.astype(bool), colors=COLORS)
 
     while True:
         vis = grid_visual(grid_array.copy())
