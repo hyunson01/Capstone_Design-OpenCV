@@ -1,8 +1,7 @@
 import random
 
 from config import cbs_path, board_width_cm, board_height_cm, grid_width, grid_height, cell_size
-from cbs_manager import CBSManager
-from path_relay import get_agent
+from cbs.cbs_manager import CBSManager
 
 def run_cbs_manager(grid_array, tag_info):
     """
@@ -48,7 +47,7 @@ def run_cbs_manager(grid_array, tag_info):
     manager.run()  # -> 내부에서 자동으로 path_relay에 저장
 
     # Step 3: 결과 가져오기
-    agents = get_agent()
+    agents = manager.get_agents()
 
     print("\n=== Extracted Agents ===")
     for agent in agents:
