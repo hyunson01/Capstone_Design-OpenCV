@@ -10,6 +10,7 @@ class Simulator:
         self.cell_size = cell_size
         self.robots = []
         self.vis = self.create_grid()
+        self.paused = False
 
     def add_robot(self, robot_id, broker, start_pos=(0, 0)):
         robot = Robot(robot_id, broker, start_pos)
@@ -29,6 +30,8 @@ class Simulator:
         return vis
 
     def run_once(self):
+        if getattr(self, 'paused', False):
+            return
         self.vis = self.create_grid()
         self.draw_robots()
         cv2.imshow("Simulator", self.vis)

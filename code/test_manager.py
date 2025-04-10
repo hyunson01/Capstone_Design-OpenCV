@@ -26,29 +26,33 @@ broker = FakeMQTTBroker()
 # 마우스 콜백 함수
 def mouse_event(event, x, y, flags, param):
     global agents, paths, manager, sim
-
     row, col = y // cell_size, x // cell_size
-    
     if not (0 <= row < 12 and 0 <= col < 12):
         return
 
     if event == cv2.EVENT_LBUTTONDOWN:
-        agent_id = len(agents)
         print(f"Start set at ({row}, {col})")
-        agent = Agent(id=agent_id, start=(row, col), goal=None, delay=0)
-        agents.append(agent)
+        for agent in agents:
+            if agent.start is None:
+                agent.start = (row, col)
+                break
+        else:
+            agent_id = len(agents)
+            agent = Agent(id=agent_id, start=(row, col), goal=None, delay=0)
+            agents.append(agent)
         
     elif event == cv2.EVENT_RBUTTONDOWN:
-        # ✅ Goal 클릭: 목표 추가
         if agents:
             print(f"Goal set at ({row}, {col})")
             for agent in agents:
                 if agent.goal is None:
                     agent.goal = (row, col)
                     break
-                
-            if all(agent.start is not None and agent.goal is not None for agent in agents):
-                compute_cbs(sim)
+
+    # 🛑 클릭 이벤트일 때만 CBS 검사
+    if event in [cv2.EVENT_LBUTTONDOWN, cv2.EVENT_RBUTTONDOWN]:
+        if agents and all(agent.start is not None and agent.goal is not None for agent in agents):
+            compute_cbs(sim)
 
 
 # 경로 시각화용 색상
@@ -82,7 +86,7 @@ def apply_start_delays(paths, starts, delays):
 
 
 def compute_cbs(sim=None):
-    global broker  # 추가
+    global broker, manager  # 추가
     if sim:
         sim.robots.clear()   # ✅ sim이 None이 아닐 때만 clear
         sim.paused = True
@@ -98,8 +102,6 @@ def compute_cbs(sim=None):
     else:
         if sim:
             print("New CBS paths ready! Sending commands to robots...")
-
-            # ✅ 각 로봇을 시뮬레이터에 추가
             for agent in agents:
                 sim.add_robot(agent.id, broker, start_pos=agent.start)
 
@@ -142,7 +144,6 @@ def main():
         
         sim.run_once()
         
-        #키보드 입력처리리
         key = cv2.waitKey(50)
 
         if key == ord('q'):
