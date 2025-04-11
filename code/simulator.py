@@ -12,6 +12,7 @@ class Simulator:
         self.vis = self.create_grid()
         self.paused = False
         self.robot_info = {}
+        self.robot_past_paths = {}
 
     def add_robot(self, robot_id, broker, start_pos=(0, 0)):
         robot = Robot(robot_id, broker, start_pos)
@@ -75,15 +76,34 @@ class Simulator:
     def draw_paths(self, vis):
         overlay = vis.copy()
         for robot_id, info in self.robot_info.items():
-            path = info['path']
-            if path:
-                color = self.colors[robot_id % len(self.colors)]
-                for i in range(1, len(path)):
-                    p1 = (path[i-1][1] * self.cell_size + self.cell_size // 2, path[i-1][0] * self.cell_size + self.cell_size // 2)
-                    p2 = (path[i][1] * self.cell_size + self.cell_size // 2, path[i][0] * self.cell_size + self.cell_size // 2)
-                    cv2.line(overlay, p1, p2, color, thickness=3)
-        # 🔥 마지막에 투명도 섞기
+            color = self.colors[robot_id % len(self.colors)]
+
+            past_path = self.robot_past_paths.get(robot_id, [])
+            current_path = info['path'] if info['path'] else []
+
+            # 🔥 경로 연결할 리스트
+            full_path = []
+
+            if past_path:
+                full_path.extend(past_path)
+
+            if current_path:
+                # 🔥 지나온 마지막 위치와 새로운 경로 첫 위치가 다르면, 연결 끊기
+                if not past_path or past_path[-1] == current_path[0]:
+                    full_path.extend(current_path)
+                else:
+                    print(f"Robot {robot_id}: Path discontinuity detected. Not connecting past and current paths.")
+                    # 지나온 경로 그린 다음, 새 경로는 따로 그린다.
+
+            # 🔥 경로 그리기
+            for i in range(1, len(full_path)):
+                p1 = (full_path[i-1][1] * self.cell_size + self.cell_size // 2, full_path[i-1][0] * self.cell_size + self.cell_size // 2)
+                p2 = (full_path[i][1] * self.cell_size + self.cell_size // 2, full_path[i][0] * self.cell_size + self.cell_size // 2)
+                cv2.line(overlay, p1, p2, color, thickness=3)
+
         cv2.addWeighted(overlay, 0.3, vis, 0.7, 0, vis)
+
+
 
 
     def run_once(self):
@@ -114,6 +134,21 @@ class Simulator:
     def step(self):
         if not self.paused:
             self.tick()
+            
+            # 🔥 로봇 이동할 때 지나온 경로 저장
+            for robot in self.robots:
+                pos = tuple(map(int, robot.get_position()))  # (정수 변환)
+                if robot.robot_id not in self.robot_past_paths:
+                    self.robot_past_paths[robot.robot_id] = []
+                if not self.robot_past_paths[robot.robot_id] or self.robot_past_paths[robot.robot_id][-1] != pos:
+                    self.robot_past_paths[robot.robot_id].append(pos)
+
+            
+    def get_robot_current_positions(self):
+        positions = {}
+        for robot in self.robots:
+            positions[robot.robot_id] = robot.get_position()
+        return positions
 
 
 class Robot:
@@ -234,3 +269,4 @@ class Robot:
             print(f"[Robot {self.robot_id}] 정지.")
         else:
             print(f"[Robot {self.robot_id}] 알 수 없는 명령어: {code}")
+            

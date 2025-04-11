@@ -87,46 +87,59 @@ COLORS = [
 
 def compute_cbs(sim=None):
     global broker, manager, paths
+
     if sim:
-        sim.robots.clear()
-        sim.paused = True
+        sim.paused = True  # 일단 멈추고
+        current_positions = sim.get_robot_current_positions()  # 🔥 현재 위치 가져오기
 
     grid_array = load_grid()
     map_array = grid_array.astype(bool)
     
     manager = CBSManager(solver_type="CBS", disjoint=True, visualize_result=False)
-    manager.load_instance(map_array, agents)
-    
+
+    new_agents = []
+
+    # 기존 agents를 그대로 쓰는게 아니라 새로 start, goal을 정의
+    for agent in agents:
+        if sim and agent.id in current_positions:
+            current_start = tuple(map(int, current_positions[agent.id]))  # 현재 위치 (반올림/정수 변환)
+        else:
+            current_start = agent.start  # 없으면 기존 start
+
+        new_agent = Agent(id=agent.id, start=current_start, goal=agent.goal, delay=0)
+        new_agents.append(new_agent)
+
+    manager.load_instance(map_array, new_agents)
+
     new_paths = manager.run()
+
     if not new_paths:
         print("No solution found.")
-        
-    # ✅ 여기를 이렇게 통합
+
     paths.clear()
     paths.extend(new_paths)
 
     if sim:
+        past_paths_backup = sim.robot_past_paths.copy()  # 🔥 지나온 경로 백업
+        sim.robots.clear()
+        sim.robot_past_paths = past_paths_backup 
+
         print("New CBS paths ready! Sending commands to robots...")
-        for agent in agents:
+        for agent in new_agents:
             robot = sim.add_robot(agent.id, broker, start_pos=agent.start)
             sim.robot_info[robot.robot_id]['path'] = agent.get_final_path()
             sim.robot_info[robot.robot_id]['goal'] = agent.goal
-            
-        print(f"현재 시뮬레이터에 등록된 로봇 수: {len(sim.robots)}")
-
-        # 경로를 명령어로 변환해서 publish
+        
         for agent_id, path in enumerate(new_paths):
             commands = path_to_commands(path, initial_dir="north")
-            # print(f"Robot {agent_id} 명령어 시퀀스:", commands)
             compressed_cmd = compress_commands(commands)
             topic = f"robot/{agent_id}/move"
             broker.publish(topic, compressed_cmd)
-        sim.paused = False
         
+        sim.paused = False
     else:
-        paths.clear()
-        paths.extend(new_paths)
         print("Paths updated via mouse_event.")
+
         
 def compress_commands(commands):
     mapping = {
@@ -163,6 +176,7 @@ def compress_commands(commands):
     return ''.join(result)
 
 def draw_paths(vis_img, paths):
+    # 1. paths (CBS 경로) 색칠
     for idx, path in enumerate(paths):
         color = COLORS[idx % len(COLORS)]
         for pos in path:
@@ -171,6 +185,18 @@ def draw_paths(vis_img, paths):
             overlay = vis_img.copy()
             cv2.rectangle(overlay, (x, y), (x + cell_size, y + cell_size), color, -1)
             cv2.addWeighted(overlay, 0.3, vis_img, 0.7, 0, vis_img)
+    
+    # 2. 추가: sim.robot_past_paths에 저장된 지나간 경로도 색칠
+    if sim:
+        for robot_id, past_path in sim.robot_past_paths.items():
+            color = COLORS[robot_id % len(COLORS)]
+            for pos in past_path:
+                r, c = pos
+                x, y = c * cell_size, r * cell_size
+                overlay = vis_img.copy()
+                cv2.rectangle(overlay, (x, y), (x + cell_size, y + cell_size), color, -1)
+                cv2.addWeighted(overlay, 0.3, vis_img, 0.7, 0, vis_img)
+
             
             
 def apply_start_delays(paths, starts, delays):
