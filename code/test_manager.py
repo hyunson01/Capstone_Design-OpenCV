@@ -47,7 +47,7 @@ def mouse_event(event, x, y, flags, param):
             else:
                 # 아예 없으면 새로 생성
                 agent_id = len(agents)
-                agent = Agent(id=agent_id, start=(row, col), goal=None, delay=0)
+                agent = Agent(id=agent_id, start=(row, col), goal=None, delay=50)
                 agents.append(agent)
 
     elif event == cv2.EVENT_RBUTTONDOWN:  # 우클릭 (도착지)
@@ -106,7 +106,7 @@ def compute_cbs(sim=None):
         else:
             current_start = agent.start  # 없으면 기존 start
 
-        new_agent = Agent(id=agent.id, start=current_start, goal=agent.goal, delay=0)
+        new_agent = Agent(id=agent.id, start=current_start, goal=agent.goal, delay=agent.delay)
         new_agents.append(new_agent)
 
     manager.load_instance(map_array, new_agents)

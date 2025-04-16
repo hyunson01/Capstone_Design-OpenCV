@@ -2,6 +2,7 @@ import random
 
 from config import cbs_path, board_width_cm, board_height_cm, grid_width, grid_height, cell_size
 from cbs.cbs_manager import CBSManager
+from cbs.agent import Agent
 
 def run_cbs_manager(grid_array, tag_info):
     """
@@ -43,6 +44,10 @@ def run_cbs_manager(grid_array, tag_info):
     # Step 2: CBSManager를 이용해 CBS 실행
     map_array = grid_array.astype(bool)  # 0: 이동 가능, 1: 장애물
     manager = CBSManager(solver_type="ICBS", disjoint=True, visualize_result=False)
+    agents = []
+    for tag_id, start, goal in zip(agent_ids, start_points, goal_points):
+        agent = Agent(id=tag_id, start=start, goal=goal, delay=2)  # ← 예시로 delay 2초
+        agents.append(agent)
     manager.load_instance(map_array, start_points, goal_points, agent_ids)
     manager.run()  # -> 내부에서 자동으로 path_relay에 저장
 
