@@ -1,5 +1,6 @@
 import sys
 import os
+import random
 
 # D:\git\MAPF-ICBS\code 경로를 추가
 sys.path.append(r"D:\git\Capstone_Design-OpenCV\MAPF-ICBS\code")
@@ -46,9 +47,9 @@ def mouse_event(event, x, y, flags, param):
                     break
             else:
                 # 아예 없으면 새로 생성
-                agent_id = len(agents)
-                agent = Agent(id=agent_id, start=(row, col), goal=None, delay=50)
+                agent = create_agent(start=(row, col))
                 agents.append(agent)
+
 
     elif event == cv2.EVENT_RBUTTONDOWN:  # 우클릭 (도착지)
         print(f"Goal set at ({row}, {col})")
@@ -65,9 +66,9 @@ def mouse_event(event, x, y, flags, param):
                     break
             else:
                 # 아예 없으면 새로 생성
-                agent_id = len(agents)
-                agent = Agent(id=agent_id, start=None, goal=(row, col), delay=0)
+                agent = create_agent(goal=(row, col))
                 agents.append(agent)
+
 
     # ★ 출발지와 도착지가 모두 있는 agent가 하나라도 완성됐으면
     if event in [cv2.EVENT_LBUTTONDOWN, cv2.EVENT_RBUTTONDOWN]:
@@ -85,11 +86,19 @@ COLORS = [
     (0, 0, 192), (192, 192, 0), (192, 0, 192), (0, 192, 192)
 ]
 
+def create_agent(start=None, goal=None, delay=None, agent_id=None):
+    if agent_id is None:
+        agent_id = len(agents)
+    if delay is None:
+        delay = random.randint(0, 5)
+    return Agent(id=agent_id, start=start, goal=goal, delay=delay)
+
+
 def compute_cbs(sim=None):
     global broker, manager, paths
 
     if sim:
-        sim.paused = True  # 일단 멈추고
+        # sim.paused = True  # 일단 멈추고
         current_positions = sim.get_robot_current_positions()  # 🔥 현재 위치 가져오기
 
     grid_array = load_grid()
@@ -136,7 +145,7 @@ def compute_cbs(sim=None):
             topic = f"robot/{agent_id}/move"
             broker.publish(topic, compressed_cmd)
         
-        sim.paused = False
+        # sim.paused = False
     else:
         print("Paths updated via mouse_event.")
 

@@ -41,7 +41,8 @@ class Simulator:
             
             color = self.colors[robot.robot_id % len(self.colors)]
             cv2.circle(vis, (cx, cy), self.cell_size // 3, color, -1)
-            
+           
+    """            
     def draw_start_goal(self, vis):
         overlay = vis.copy()
         for robot_id, info in self.robot_info.items():
@@ -70,9 +71,9 @@ class Simulator:
                 
         # ✅ 반투명으로 합치기
         cv2.addWeighted(overlay, 0.3, vis, 0.7, 0, vis)
+    """
 
-
-                
+    """           
     def draw_paths(self, vis):
         overlay = vis.copy()
         for robot_id, info in self.robot_info.items():
@@ -102,7 +103,7 @@ class Simulator:
                 cv2.line(overlay, p1, p2, color, thickness=3)
 
         cv2.addWeighted(overlay, 0.3, vis, 0.7, 0, vis)
-
+    """
 
 
 
@@ -110,8 +111,8 @@ class Simulator:
         self.vis = self.create_grid()  # 배경(맵) 먼저 그림
         
         # 🔥 여기에 추가
-        self.draw_paths(self.vis)          # 경로 먼저 그리기
-        self.draw_start_goal(self.vis)      # 출발지, 도착지 그리기
+        # self.draw_paths(self.vis)          # 경로 먼저 그리기
+        # self.draw_start_goal(self.vis)      # 출발지, 도착지 그리기
 
         self.draw_robots(self.vis)                  # 로봇(보간 이동) 그리기
         self.step()
