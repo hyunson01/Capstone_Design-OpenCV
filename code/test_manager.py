@@ -14,6 +14,10 @@ from visualize import Animation
 from simulator import Simulator
 from fake_mqtt import FakeMQTTBroker
 from path_to_commands import path_to_commands
+from commandSendTest2 import CommandSet
+import paho.mqtt.client as mqtt
+import json
+
 
 # 전역 변수
 agents = []
@@ -31,48 +35,64 @@ def mouse_event(event, x, y, flags, param):
     if not (0 <= row < 12 and 0 <= col < 12):
         return
 
+    # 허용된 ID 리스트
+    PRESET_IDS = [2, 4]
+
     if event == cv2.EVENT_LBUTTONDOWN:  # 좌클릭 (출발지)
         print(f"Start set at ({row}, {col})")
+
+        # 이미 2개 이상 에이전트가 등록된 경우 무시
+        if len(agents) >= len(PRESET_IDS):
+            print("더 이상 agent를 생성할 수 없습니다.")
+            return
+
         # 출발지가 없는 agent 찾기
         for agent in agents:
             if agent.start is None and agent.goal is not None:
                 agent.start = (row, col)
-                break
-        else:
-            # 출발지가 있는 agent 중 위치 이동
-            for agent in agents:
-                if agent.start is not None and agent.goal is None:
-                    agent.start = (row, col)
-                    break
-            else:
-                # 아예 없으면 새로 생성
-                agent_id = len(agents)
-                agent = Agent(id=agent_id, start=(row, col), goal=None, delay=0)
-                agents.append(agent)
+                return
+        for agent in agents:
+            if agent.start is not None and agent.goal is None:
+                agent.start = (row, col)
+                return
+
+        # 새로 생성
+        new_id = PRESET_IDS[len(agents)]
+        agent = Agent(id=new_id, start=(row, col), goal=None, delay=0)
+        agents.append(agent)
 
     elif event == cv2.EVENT_RBUTTONDOWN:  # 우클릭 (도착지)
         print(f"Goal set at ({row}, {col})")
+
         # 도착지가 없는 agent 찾기
         for agent in agents:
             if agent.goal is None and agent.start is not None:
                 agent.goal = (row, col)
-                break
-        else:
-            # 도착지가 있는 agent 중 위치 이동
-            for agent in agents:
-                if agent.goal is not None and agent.start is None:
-                    agent.goal = (row, col)
-                    break
-            else:
-                # 아예 없으면 새로 생성
-                agent_id = len(agents)
-                agent = Agent(id=agent_id, start=None, goal=(row, col), delay=0)
-                agents.append(agent)
+                return
+        for agent in agents:
+            if agent.goal is not None and agent.start is None:
+                agent.goal = (row, col)
+                return
+
+        # 새로 생성 (도착지만 지정하는 경우는 없어야 함)
+        if len(agents) >= len(PRESET_IDS):
+            print("더 이상 agent를 생성할 수 없습니다.")
+            return
+
+        new_id = PRESET_IDS[len(agents)]
+        agent = Agent(id=new_id, start=None, goal=(row, col), delay=0)
+        agents.append(agent)
+
 
     # ★ 출발지와 도착지가 모두 있는 agent가 하나라도 완성됐으면
     if event in [cv2.EVENT_LBUTTONDOWN, cv2.EVENT_RBUTTONDOWN]:
-        if agents and all(agent.start is not None and agent.goal is not None for agent in agents):
+        target_ids = {2, 4}
+        ready_ids = {agent.id for agent in agents if agent.start and agent.goal and agent.id in target_ids}
+        
+        if ready_ids == target_ids:
+            print("Agent 2와 4가 모두 준비됨. CBS 실행.")
             compute_cbs(sim)
+
 
 
 # 경로 시각화용 색상
@@ -89,56 +109,76 @@ def compute_cbs(sim=None):
     global broker, manager, paths
 
     if sim:
-        sim.paused = True  # 일단 멈추고
-        current_positions = sim.get_robot_current_positions()  # 🔥 현재 위치 가져오기
+        sim.paused = True
+        current_positions = sim.get_robot_current_positions()
 
     grid_array = load_grid()
     map_array = grid_array.astype(bool)
-    
+
     manager = CBSManager(solver_type="CBS", disjoint=True, visualize_result=False)
 
     new_agents = []
-
-    # 기존 agents를 그대로 쓰는게 아니라 새로 start, goal을 정의
     for agent in agents:
         if sim and agent.id in current_positions:
-            current_start = tuple(map(int, current_positions[agent.id]))  # 현재 위치 (반올림/정수 변환)
+            current_start = tuple(map(int, current_positions[agent.id]))
         else:
-            current_start = agent.start  # 없으면 기존 start
-
-        new_agent = Agent(id=agent.id, start=current_start, goal=agent.goal, delay=0)
-        new_agents.append(new_agent)
+            current_start = agent.start
+        new_agents.append(Agent(id=agent.id, start=current_start, goal=agent.goal, delay=0))
 
     manager.load_instance(map_array, new_agents)
-
     new_paths = manager.run()
 
     if not new_paths:
         print("No solution found.")
+        return
 
     paths.clear()
     paths.extend(new_paths)
 
     if sim:
-        past_paths_backup = sim.robot_past_paths.copy()  # 🔥 지나온 경로 백업
+        past_paths_backup = sim.robot_past_paths.copy()
         sim.robots.clear()
-        sim.robot_past_paths = past_paths_backup 
+        sim.robot_past_paths = past_paths_backup
 
         print("New CBS paths ready! Sending commands to robots...")
         for agent in new_agents:
             robot = sim.add_robot(agent.id, broker, start_pos=agent.start)
             sim.robot_info[robot.robot_id]['path'] = agent.get_final_path()
             sim.robot_info[robot.robot_id]['goal'] = agent.goal
-        
-        for agent_id, path in enumerate(new_paths):
-            commands = path_to_commands(path, initial_dir="north")
-            compressed_cmd = compress_commands(commands)
-            topic = f"robot/{agent_id}/move"
-            broker.publish(topic, compressed_cmd)
-        
-        sim.paused = False
+
+        sim.paused = False  # ✅ 여기에 위치해야 맞음
     else:
         print("Paths updated via mouse_event.")
+
+    # ✅ MQTT 전송 (항상 실행)
+    robot_commands = []
+    for agent, path in zip(new_agents, new_paths):
+        commands = path_to_commands(path, initial_dir="north")
+        str_cmds = []
+        prev = None
+        count = 0
+        for c in commands + [None]:
+            if c == prev:
+                count += 1
+            else:
+                if prev == "forward":
+                    str_cmds.append(f"D{count * 10}")
+                elif prev == "left":
+                    str_cmds.extend(["L"] * count)
+                elif prev == "right":
+                    str_cmds.extend(["R"] * count)
+                count = 1
+                prev = c
+        robot_commands.append(CommandSet(str(agent.id), str_cmds))
+
+    mqtt_client = mqtt.Client()
+    mqtt_client.connect("192.168.159.132", 1883, 60)
+    payload = json.dumps({
+        "commands": [cmd.to_dict() for cmd in robot_commands]
+    })
+    print("Sending command payload:", payload)
+    mqtt_client.publish("command/transfer", payload)
+    mqtt_client.disconnect()
 
         
 def compress_commands(commands):

@@ -1,5 +1,9 @@
+import sys
+import os
+
 import cv2
 import numpy as np
+sys.path.append(r"D:\git\Capstone_Design-OpenCV\MAPF-ICBS\code")
 from vision.camera import camera_open, frame_process
 from vision.board import board_detect, perspective_transform, board_pts, board_origin, board_draw
 from vision.apriltag import AprilTagDetector, cm_per_px

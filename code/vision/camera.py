@@ -1,7 +1,7 @@
 import cv2
 
 def camera_open():
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(1)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
     fps = cap.get(cv2.CAP_PROP_FPS)

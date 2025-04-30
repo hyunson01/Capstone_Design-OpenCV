@@ -5,7 +5,6 @@ from visualize import Animation
 from single_agent_planner import get_sum_of_cost
 from cbs.agent import Agent
 
-
 class CBSManager:
     def __init__(self, solver_type="ICBS", disjoint=False, visualize_result=True):
         self.solver_type = solver_type
