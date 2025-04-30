@@ -146,14 +146,6 @@ def paths_violate_constraint(constraint, paths):
                 rst.append(i)
     return rst
 
-def apply_delay_constraint(constraints, agent_id, start_loc, delay_time):
-    for t in range(delay_time):
-        constraints.append({
-            'agent': agent_id,
-            'loc': [start_loc],
-            'timestep': t,
-            'positive': True
-        })
 
 
 class CBSSolver(object):
@@ -215,25 +207,10 @@ class CBSSolver(object):
         # paths         - list of paths, one for each agent
         #               [[(x11, y11), (x12, y12), ...], [(x21, y21), (x22, y22), ...], ...]
         # collisions     - list of collisions in paths
-        
-        initial_constraints = []
-
-        for agent in self.agents:
-            if agent.delay > 0:
-                apply_delay_constraint(
-                    initial_constraints,
-                    agent_id=agent.id,
-                    start_loc=agent.start,
-                    delay_time=agent.delay
-                )
-
-        root = {
-            'cost': 0,
-            'constraints': initial_constraints,
-            'paths': [],
-            'collisions': []
-        }
-
+        root = {'cost': 0,
+                'constraints': [],
+                'paths': [],
+                'collisions': []}
 
         for i in range(self.num_of_agents):  # Find initial path for each agent
             astar = AStar(self.my_map, self.starts, self.goals, self.heuristics,i, root['constraints'])

@@ -1,5 +1,6 @@
 import sys
 import os
+import random
 
 # D:\git\MAPF-ICBS\code 경로를 추가
 sys.path.append(r"D:\git\Capstone_Design-OpenCV\MAPF-ICBS\code")
@@ -61,6 +62,7 @@ def mouse_event(event, x, y, flags, param):
         agent = Agent(id=new_id, start=(row, col), goal=None, delay=0)
         agents.append(agent)
 
+
     elif event == cv2.EVENT_RBUTTONDOWN:  # 우클릭 (도착지)
         print(f"Goal set at ({row}, {col})")
 
@@ -84,6 +86,7 @@ def mouse_event(event, x, y, flags, param):
         agents.append(agent)
 
 
+
     # ★ 출발지와 도착지가 모두 있는 agent가 하나라도 완성됐으면
     if event in [cv2.EVENT_LBUTTONDOWN, cv2.EVENT_RBUTTONDOWN]:
         target_ids = {2, 4}
@@ -104,6 +107,14 @@ COLORS = [
     (64, 0, 64), (0, 64, 64), (192, 0, 0), (0, 192, 0),
     (0, 0, 192), (192, 192, 0), (192, 0, 192), (0, 192, 192)
 ]
+
+def create_agent(start=None, goal=None, delay=None, agent_id=None):
+    if agent_id is None:
+        agent_id = len(agents)
+    if delay is None:
+        delay = random.randint(0, 5)
+    return Agent(id=agent_id, start=start, goal=goal, delay=delay)
+
 
 def compute_cbs(sim=None):
     global broker, manager, paths
