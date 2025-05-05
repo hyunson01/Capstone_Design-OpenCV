@@ -1,9 +1,9 @@
+#ICBS 소스에서 import
 from cbs_basic import CBSSolver
 from icbs_cardinal_bypass import ICBS_CB_Solver
 from icbs_complete import ICBS_Solver
 from visualize import Animation
 from single_agent_planner import get_sum_of_cost
-from cbs.agent import Agent
 
 class CBSManager:
     def __init__(self, solver_type="ICBS", disjoint=False, visualize_result=True):
@@ -14,7 +14,7 @@ class CBSManager:
 
     def load_instance(self, my_map, agents):
         self.my_map = my_map
-        self.agents = agents  # ✅ agents를 바로 저장
+        self.agents = agents
 
     def create_solver(self):
         if self.solver_type == "CBS":
@@ -52,4 +52,4 @@ class CBSManager:
         return [agent.path for agent in self.agents]
 
     def get_agents(self):
-        return self.agents  # ✅ 직접 self.agents 반환
+        return self.agents

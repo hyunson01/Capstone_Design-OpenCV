@@ -125,4 +125,23 @@ def cm_per_px(warped_board_width_px, warped_board_height_px):
 #     detected_ids.update(new_detected_ids)
 
 
+def transform_coordinates(tag_info: dict[int, dict]) -> dict[int, dict]:
+    from config import board_width_cm, board_height_cm, grid_width, grid_height, cell_size
 
+    result = {}
+    for tag_id, data in tag_info.items():
+        x_cm, y_cm = data["coordinates"]
+        tag_grid_x = int(x_cm * grid_width / board_width_cm)
+        tag_grid_y = int(y_cm * grid_height / board_height_cm)
+        col = tag_grid_x // cell_size
+        row = tag_grid_y // cell_size
+
+        row = max(0, min(grid_height - 1, row))
+        col = max(0, min(grid_width - 1, col))
+
+        result[tag_id] = {
+            **data,
+            "grid_position": (row, col)
+        }
+
+    return result

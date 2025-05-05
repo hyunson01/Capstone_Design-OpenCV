@@ -16,6 +16,8 @@ from simulator import Simulator
 from fake_mqtt import FakeMQTTBroker
 from path_to_commands import path_to_commands
 from commandSendTest2 import CommandSet
+from pathfinder import PathFinder
+from config import COLORS
 import paho.mqtt.client as mqtt
 import json
 
@@ -27,6 +29,8 @@ current_agent = 0
 manager = None
 sim = None
 broker = FakeMQTTBroker()
+pathfinder = None
+
 
 # 마우스 콜백 함수
 def mouse_event(event, x, y, flags, param):
@@ -96,18 +100,6 @@ def mouse_event(event, x, y, flags, param):
             print("Agent 2와 4가 모두 준비됨. CBS 실행.")
             compute_cbs(sim)
 
-
-
-# 경로 시각화용 색상
-COLORS = [
-    (255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0),
-    (255, 0, 255), (0, 255, 255), (128, 0, 0), (0, 128, 0),
-    (0, 0, 128), (128, 128, 0), (128, 0, 128), (0, 128, 128),
-    (64, 0, 0), (0, 64, 0), (0, 0, 64), (64, 64, 0),
-    (64, 0, 64), (0, 64, 64), (192, 0, 0), (0, 192, 0),
-    (0, 0, 192), (192, 192, 0), (192, 0, 192), (0, 192, 192)
-]
-
 def create_agent(start=None, goal=None, delay=None, agent_id=None):
     if agent_id is None:
         agent_id = len(agents)
@@ -161,35 +153,35 @@ def compute_cbs(sim=None):
     else:
         print("Paths updated via mouse_event.")
 
-    # ✅ MQTT 전송 (항상 실행)
-    robot_commands = []
-    for agent, path in zip(new_agents, new_paths):
-        commands = path_to_commands(path, initial_dir="north")
-        str_cmds = []
-        prev = None
-        count = 0
-        for c in commands + [None]:
-            if c == prev:
-                count += 1
-            else:
-                if prev == "forward":
-                    str_cmds.append(f"D{count * 10}")
-                elif prev == "left":
-                    str_cmds.extend(["L"] * count)
-                elif prev == "right":
-                    str_cmds.extend(["R"] * count)
-                count = 1
-                prev = c
-        robot_commands.append(CommandSet(str(agent.id), str_cmds))
+    # # ✅ MQTT 전송 (항상 실행)
+    # robot_commands = []
+    # for agent, path in zip(new_agents, new_paths):
+    #     commands = path_to_commands(path, initial_dir="north")
+    #     str_cmds = []
+    #     prev = None
+    #     count = 0
+    #     for c in commands + [None]:
+    #         if c == prev:
+    #             count += 1
+    #         else:
+    #             if prev == "forward":
+    #                 str_cmds.append(f"D{count * 10}")
+    #             elif prev == "left":
+    #                 str_cmds.extend(["L"] * count)
+    #             elif prev == "right":
+    #                 str_cmds.extend(["R"] * count)
+    #             count = 1
+    #             prev = c
+    #     robot_commands.append(CommandSet(str(agent.id), str_cmds))
 
-    mqtt_client = mqtt.Client()
-    mqtt_client.connect("192.168.159.132", 1883, 60)
-    payload = json.dumps({
-        "commands": [cmd.to_dict() for cmd in robot_commands]
-    })
-    print("Sending command payload:", payload)
-    mqtt_client.publish("command/transfer", payload)
-    mqtt_client.disconnect()
+    # mqtt_client = mqtt.Client()
+    # mqtt_client.connect("192.168.159.132", 1883, 60)
+    # payload = json.dumps({
+    #     "commands": [cmd.to_dict() for cmd in robot_commands]
+    # })
+    # print("Sending command payload:", payload)
+    # mqtt_client.publish("command/transfer", payload)
+    # mqtt_client.disconnect()
 
         
 def compress_commands(commands):

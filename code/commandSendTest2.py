@@ -54,17 +54,43 @@ class CommandSet:
             "command_set": structured_commands
         }
 
-# 로봇 2와 로봇 4의 명령세트 생성
-command_set_robot2 = CommandSet("2", ["D30", "R", "D30", "R", "D30", "R", "D30"])
-command_set_robot4 = CommandSet("4", ["D30", "R", "D30", "R", "D30", "R", "D30"])
+    @classmethod
+    def send_command_sets(cls, command_sets):
+        """
+        CommandSet 객체 리스트를 받아 MQTT를 통해 전송합니다.
+        """
+        try:
+            client = mqtt.Client()
+            client.connect(cls.MQTT_SERVER, cls.MQTT_PORT, 60)
 
-# 여러 로봇의 명령세트를 하나의 메시지로 구성
-message = {
-    "commands": [
-        command_set_robot2.to_dict(),
-        command_set_robot4.to_dict()
-    ]
-}
+            message = {"commands": [cs.to_dict() for cs in command_sets]}
+            payload = json.dumps(message)
+
+            print("전송 모듈 명령 세트:", payload)
+            client.publish(cls.TRANSFER_TOPIC, payload)
+            time.sleep(1)
+            client.disconnect()
+
+        except Exception as e:
+            print(f"로봇 통신 실패: {e}")
+
+
+
+
+
+
+
+# # 로봇 2와 로봇 4의 명령세트 생성
+# command_set_robot2 = CommandSet("2", ["D30", "R", "D30", "R", "D30", "R", "D30"])
+# command_set_robot4 = CommandSet("4", ["D30", "R", "D30", "R", "D30", "R", "D30"])
+
+# # 여러 로봇의 명령세트를 하나의 메시지로 구성
+# message = {
+#     "commands": [
+#         command_set_robot2.to_dict(),
+#         command_set_robot4.to_dict()
+#     ]
+# }
 
 # client = mqtt.Client()
 # client.connect(MQTT_SERVER, MQTT_PORT, 60)
