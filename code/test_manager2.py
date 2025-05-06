@@ -13,12 +13,10 @@ from cbs.agent import Agent
 from visualize import Animation
 # from simulator import Simulator
 # from fake_mqtt import FakeMQTTBroker
-from path_to_commands import path_to_commands
 from commandSendTest2 import CommandSet
 from cbs.pathfinder import PathFinder
 from config import COLORS
 import json
-
 
 # 전역 변수
 agents = []
@@ -28,6 +26,8 @@ manager = None
 # sim = None
 # broker = FakeMQTTBroker()
 pathfinder = None
+
+# 사용할 ID 목록
 PRESET_IDS = [1,3, 4]
 
 # 마우스 콜백 함수
@@ -128,6 +128,7 @@ def mouse_event(event, x, y, flags, param):
             print(f"Agent {sorted(ready_ids)} 준비 완료. CBS 실행.")
             compute_cbs()
 
+#에이전트 초기화
 def create_agent(start=None, goal=None, delay=None, agent_id=None):
     if agent_id is None:
         agent_id = len(agents)
@@ -135,16 +136,15 @@ def create_agent(start=None, goal=None, delay=None, agent_id=None):
         delay = random.randint(0, 5)
     return Agent(id=agent_id, start=start, goal=goal, delay=delay)
 
+#CBS 계산
 def compute_cbs():
     global paths, pathfinder
 
     grid_array = load_grid()
 
-    # PathFinder 초기화
     if pathfinder is None:
         pathfinder = PathFinder(grid_array)
 
-    # 경로 계산
     new_agents = pathfinder.compute_paths(agents)
     new_paths = [agent.get_final_path() for agent in new_agents]
 
@@ -157,15 +157,23 @@ def compute_cbs():
 
     print("Paths updated via PathFinder.")
 
+    # 로봇 명령 전송
+    command_sets = [CommandSet(str(agent.id), agent.get_final_path()) for agent in new_agents]
+
+# 전송할 JSON 문자열을 미리 출력
     try:
-        command_sets = []
-        for agent in new_agents:
-            commands = path_to_commands(agent.get_final_path(), initial_dir="north")
-            command_set = CommandSet(str(agent.id), commands)
-            command_sets.append(command_set)
+        payload = json.dumps({"commands": [cs.to_dict() for cs in command_sets]}, indent=2, ensure_ascii=False)
+        print("!!!전송 예정 명령 세트:")
+        print(payload)
+    except Exception as e:
+        print(f"명령 세트 변환 중 오류 발생: {e}")
+
+    # 실제 전송 시도
+    try:
         CommandSet.send_command_sets(command_sets)
     except Exception as e:
         print(f"명령 전송 중 오류 발생: {e}")
+
 
     # if sim:
     #     for agent in new_agents:
@@ -176,39 +184,41 @@ def compute_cbs():
     
 
 def compress_commands(commands):
-    mapping = {
-        "forward": "f",
-        "left": "l",
-        "right": "r",
-        "stop": "s"
-    }
+#     mapping = {
+#         "forward": "f",
+#         "left": "l",
+#         "right": "r",
+#         "stop": "s"
+#     }
     
-    if not commands:
-        return ''
+#     if not commands:
+#         return ''
     
-    result = []
-    prev = mapping[commands[0]]
-    count = 1
+#     result = []
+#     prev = mapping[commands[0]]
+#     count = 1
     
-    for cmd in commands[1:]:
-        code = mapping[cmd]
-        if code == prev:
-            count += 1
-        else:
-            if count > 1:
-                result.append(f"{prev}{count}")
-            else:
-                result.append(prev)
-            prev = code
-            count = 1
-    # 마지막 명령어 처리
-    if count > 1:
-        result.append(f"{prev}{count}")
-    else:
-        result.append(prev)
+#     for cmd in commands[1:]:
+#         code = mapping[cmd]
+#         if code == prev:
+#             count += 1
+#         else:
+#             if count > 1:
+#                 result.append(f"{prev}{count}")
+#             else:
+#                 result.append(prev)
+#             prev = code
+#             count = 1
+#     # 마지막 명령어 처리
+#     if count > 1:
+#         result.append(f"{prev}{count}")
+#     else:
+#         result.append(prev)
     
-    return ''.join(result)
+#     return ''.join(result)
+        return 
 
+#경로 색칠용 코드
 def draw_paths(vis_img, paths):
     # 1. paths (CBS 경로) 색칠
     for idx, path in enumerate(paths):
@@ -238,20 +248,6 @@ def apply_start_delays(paths, starts, delays):
         hold = [starts[i]] * delay
         delayed_paths.append(hold + path)
     return delayed_paths
-
-def direction_between(pos1, pos2):
-    r1, c1 = pos1
-    r2, c2 = pos2
-    if r1 == r2 and c1 + 1 == c2:
-        return "east"
-    elif r1 == r2 and c1 - 1 == c2:
-        return "west"
-    elif c1 == c2 and r1 + 1 == r2:
-        return "south"
-    elif c1 == c2 and r1 - 1 == r2:
-        return "north"
-    else:
-        raise ValueError(f"Invalid move from {pos1} to {pos2}")
     
 def main():
     global agents, paths, manager
@@ -314,10 +310,6 @@ def main():
             compute_cbs()
             
     cv2.destroyAllWindows()
-
-# def _random_goal(self, avoid: tuple[int, int]) -> tuple[int, int]:
-#         options = [cell for cell in self.valid_cells if cell != avoid]
-#         return random.choice(options) if options else avoid
 
 
 if __name__ == '__main__':
