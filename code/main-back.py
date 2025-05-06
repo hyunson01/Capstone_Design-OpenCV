@@ -11,12 +11,20 @@ from vision.tracking import TrackingManager
 from grid import save_grid, load_grid
 from visual import mouse_callback, grid_visual, grid_tag_visual, info_tag, slider_create
 from config import tag_info, object_points, camera_matrix, dist_coeffs,cbs_path, arguments
+from cbs.cbs_runner import  run_cbs_manager
 from movement.movement_generator import generate_movement_commands
-from cbs.pathfinder import PathFinder
-from commandSendTest2 import CommandSet
+from environment import EnvironmentSpec
+from config import board_width_cm, board_height_cm, grid_width, grid_height, cell_size
+from grid import load_grid
 
-
-
+env_spec = EnvironmentSpec(
+    grid_array=load_grid(),
+    board_width_cm=board_width_cm,
+    board_height_cm=board_height_cm,
+    grid_width=grid_width,
+    grid_height=grid_height,
+    cell_size=cell_size
+)
 def main():
     cap, fps = camera_open()
     frame_count = 0
@@ -71,6 +79,7 @@ def main():
         elif key == ord('s'):
             save_grid(grid_array)
         elif key == ord('c'):
+            agents = run_cbs_manager(grid_array, tag_info)
             generate_movement_commands(agents)
 
     cap.release()

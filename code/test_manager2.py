@@ -28,7 +28,7 @@ manager = None
 pathfinder = None
 
 # 사용할 ID 목록
-PRESET_IDS = [1,3, 4]
+PRESET_IDS = [1,2,3,4,5,6,7,8,9,10,11,12]  # 예시: 1~12까지의 ID 사용
 
 # 마우스 콜백 함수
 def mouse_event(event, x, y, flags, param):
@@ -306,8 +306,12 @@ def main():
         # elif key == ord(' '):  # ✅ Spacebar 눌러서 일시정지
         #     sim.paused = not sim.paused
         #     print("Paused" if sim.paused else "Resumed")
+        
         elif key == ord('c'):  # 'c' 키로 CBS 재계산
-            compute_cbs()
+            if all(a.start and a.goal for a in agents):
+                compute_cbs()
+            else:
+                print("⚠️  start 또는 goal이 비어 있는 에이전트가 있습니다.")
             
     cv2.destroyAllWindows()
 

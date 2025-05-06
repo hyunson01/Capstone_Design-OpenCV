@@ -1,4 +1,5 @@
 import numpy as np
+import os
 
 # 카메라 매개변수 (캘리브레이션된 값 사용)
 camera_matrix = np.array([
@@ -32,7 +33,9 @@ grid_size =12
 grid_width = 600
 grid_height = int(grid_width * board_height_cm / board_width_cm)
 
-grid_path = r"D:\git\Capstone_temp\grid.json"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # 외부에 노출할 필요 없음
+grid_path = os.path.abspath(os.path.join(BASE_DIR, "..", "grid.json"))
+
 
 cell_size = 50
 
