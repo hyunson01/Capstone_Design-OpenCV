@@ -15,7 +15,7 @@ from visualize import Animation
 # from fake_mqtt import FakeMQTTBroker
 from commandSendTest2 import CommandSet
 from cbs.pathfinder import PathFinder
-from config import COLORS
+from config import COLORS, grid_row, grid_col
 import json
 
 # 전역 변수
@@ -26,6 +26,7 @@ manager = None
 # sim = None
 # broker = FakeMQTTBroker()
 pathfinder = None
+grid_array = None
 
 # 사용할 ID 목록
 PRESET_IDS = [1,2,3,4,5,6,7,8,9,10,11,12]  # 예시: 1~12까지의 ID 사용
@@ -138,9 +139,9 @@ def create_agent(start=None, goal=None, delay=None, agent_id=None):
 
 #CBS 계산
 def compute_cbs():
-    global paths, pathfinder
+    global paths, pathfinder, grid_array
 
-    grid_array = load_grid()
+    grid_array = load_grid(grid_row, grid_col)
 
     if pathfinder is None:
         pathfinder = PathFinder(grid_array)
@@ -250,8 +251,8 @@ def apply_start_delays(paths, starts, delays):
     return delayed_paths
     
 def main():
-    global agents, paths, manager
-    grid_array = load_grid()
+    global agents, paths, manager, grid_array
+    grid_array = load_grid(grid_row, grid_col)
     cv2.namedWindow("CBS Grid")
     cv2.setMouseCallback("CBS Grid", mouse_event)
 
@@ -289,10 +290,10 @@ def main():
         elif key == ord('a'):
             if paths:
                 print("Playing animation of last CBS result...")
-                animation = Animation(load_grid().astype(bool),
-                                      [agent.start for agent in agents],
-                                      [agent.goal for agent in agents],
-                                      [agent.get_final_path() for agent in agents])
+                animation = Animation(grid_array.astype(bool),
+                              [agent.start for agent in agents],
+                              [agent.goal for agent in agents],
+                              [agent.get_final_path() for agent in agents])
                 animation.show()
                 animation.save("demo.gif", speed=1.0)
             else:

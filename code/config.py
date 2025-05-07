@@ -13,8 +13,8 @@ dist_coeffs = np.array([
 ])
 
 # 보드 크기 (cm 단위)
-board_width_cm = 21
-board_height_cm = 21
+board_width_cm = 120
+board_height_cm = 90
 
 # 3D 상자 정의
 tag_size = 0.04  # 태그 크기 (단위: 미터)
@@ -28,15 +28,12 @@ tag_info = {}
 detected_ids = set()
 
 # 격자 배열 생성
-grid_size =12
-# grid_array = np.zeros((12, 12), dtype=int)
+grid_row =9
+grid_col = 12
 grid_width = 600
 grid_height = int(grid_width * board_height_cm / board_width_cm)
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # 외부에 노출할 필요 없음
-grid_path = os.path.abspath(os.path.join(BASE_DIR, "..", "grid.json"))
-
-
+# 격자 시각화 크기기
 cell_size = 50
 
 # 트래커 관련련

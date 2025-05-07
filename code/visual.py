@@ -1,12 +1,7 @@
 import cv2
 import numpy as np
 
-# 상수 지정
-board_height_cm = 30
-board_width_cm = 30
-grid_width = 600    # 12*50
-grid_height = 600
-cell_size = 50
+from config import board_height_cm, board_width_cm, grid_width, grid_height, cell_size
 
 def grid_ini(rows=12, cols=12):
     return np.zeros((rows, cols), dtype=int)
