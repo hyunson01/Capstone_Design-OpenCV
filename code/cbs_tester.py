@@ -2,8 +2,10 @@ import sys
 import os
 import random
 
-# D:\git\MAPF-ICBS\code 경로를 추가
-sys.path.append(r"D:\git\Capstone_Design-OpenCV\MAPF-ICBS\code")
+# MAPF-ICBS\code 경로를 추가
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+ICBS_PATH = os.path.join(CURRENT_DIR, '..', 'MAPF-ICBS', 'code')
+sys.path.append(os.path.normpath(ICBS_PATH))
 
 import cv2
 import numpy as np

@@ -13,11 +13,11 @@ dist_coeffs = np.array([
 ])
 
 # 보드 크기 (cm 단위)
-board_width_cm = 120
-board_height_cm = 120
+board_width_cm = 60
+board_height_cm = 60
 
 # 3D 상자 정의
-tag_size = 0.04  # 태그 크기 (단위: 미터)
+tag_size = 0.05  # 태그 크기 (단위: 미터)
 object_points = np.array([
     [0, 0, 0], [tag_size, 0, 0], [tag_size, tag_size, 0], [0, tag_size, 0],  # 태그 평면
     [0, 0, tag_size], [tag_size, 0, tag_size], [tag_size, tag_size, tag_size], [0, tag_size, tag_size]  # 상단 꼭짓점
@@ -31,18 +31,14 @@ detected_ids = set()
 cell_size_cm = 10 # 격자 크기 (cm 단위)
 grid_row = int(board_height_cm / cell_size_cm) # 세로 행 수
 grid_col = int(board_width_cm / cell_size_cm) # 가로 열 수
-grid_width = 600
-grid_height = int(grid_width * board_height_cm / board_width_cm)
 
 # 격자 시각화 크기기
 cell_size = 50
+grid_width = cell_size * grid_col
+grid_height = cell_size * grid_row
 
 # 트래커 관련련
 tracker_dict={}
-
-# CBS 경로 및 설정
-cbs_path = "D:\git\MAPF-ICBS\code"
-arguments = ["--instance", "instances/map.txt", "--disjoint", "--hlsolver", "ICBS"]
 
 # 경로 시각화용 색상
 COLORS = [
