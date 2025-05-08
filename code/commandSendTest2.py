@@ -14,7 +14,8 @@ class CommandSet:
         path: 로봇의 경로 (예: [(0, 0), (0, 1), (1, 1)])
         initial_dir: 로봇의 초기 방향 (예: "north")
         """
-        self.robot_id = robot_id
+        # self.robot_id = robot_id
+        self.robot_id = "4" #테스트용으로 4로 고정
         self.path = path
         self.initial_dir = initial_dir
         self.commands = self.path_to_commands()

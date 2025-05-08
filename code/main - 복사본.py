@@ -13,14 +13,13 @@ from vision.apriltag import AprilTagDetector, cm_per_px
 from vision.tracking import TrackingManager
 from grid import load_grid
 from visual import grid_visual, grid_tag_visual, info_tag, slider_create, cell_size
-from config import tag_info, object_points, camera_matrix, dist_coeffs,cbs_path, arguments
+from config import tag_info, object_points, camera_matrix, dist_coeffs,cbs_path, arguments, COLORS, grid_row, grid_col
 from movement.movement_generator import generate_movement_commands
 from cbs.pathfinder import PathFinder
 from commandSendTest2 import CommandSet
 from cbs.agent import Agent
 from vision.apriltag import transform_coordinates 
 from visualize import Animation
-from config import COLORS
 
 # 전역 변수
 agents = []
@@ -28,6 +27,7 @@ paths = []
 current_agent = 0
 manager = None
 pathfinder = None
+grid_array = None
 
 # 사용할 ID 목록
 PRESET_IDS = [1,2,3,4,5,6,7,8,9,10,11,12]  # 예시: 1~12까지의 ID 사용
@@ -160,9 +160,9 @@ def update_agents_from_tags(tag_info):
 
 #CBS 계산
 def compute_cbs():
-    global paths, pathfinder
+    global paths, pathfinder, grid_array
 
-    grid_array = load_grid()
+    grid_array = load_grid(grid_row, grid_col)
 
     if pathfinder is None:
         pathfinder = PathFinder(grid_array)
@@ -229,7 +229,7 @@ def main():
     cap, fps = camera_open()
     frame_count = 0
     
-    base_grid = load_grid()
+    base_grid = load_grid(grid_row, grid_col)
     grid_array = base_grid.copy()
 
     slider_create()
@@ -295,10 +295,10 @@ def main():
         elif key == ord('a'):
             if paths:
                 print("Playing animation of last CBS result...")
-                animation = Animation(load_grid().astype(bool),
-                                      [agent.start for agent in agents],
-                                      [agent.goal for agent in agents],
-                                      [agent.get_final_path() for agent in agents])
+                animation = Animation(grid_array.astype(bool),
+                              [agent.start for agent in agents],
+                              [agent.goal for agent in agents],
+                              [agent.get_final_path() for agent in agents])
                 animation.show()
                 animation.save("demo.gif", speed=1.0)
             else:

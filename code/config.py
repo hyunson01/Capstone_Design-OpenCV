@@ -14,7 +14,7 @@ dist_coeffs = np.array([
 
 # 보드 크기 (cm 단위)
 board_width_cm = 120
-board_height_cm = 90
+board_height_cm = 120
 
 # 3D 상자 정의
 tag_size = 0.04  # 태그 크기 (단위: 미터)
@@ -28,8 +28,9 @@ tag_info = {}
 detected_ids = set()
 
 # 격자 배열 생성
-grid_row =9
-grid_col = 12
+cell_size_cm = 10 # 격자 크기 (cm 단위)
+grid_row = int(board_height_cm / cell_size_cm) # 세로 행 수
+grid_col = int(board_width_cm / cell_size_cm) # 가로 열 수
 grid_width = 600
 grid_height = int(grid_width * board_height_cm / board_width_cm)
 

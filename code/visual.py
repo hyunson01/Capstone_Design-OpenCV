@@ -16,15 +16,20 @@ def trackbar(val):
     pass
 
 def slider_create():
+    aspect_ratio = board_width_cm / board_height_cm # 가로 세로 비율 계산
+    min_ratio = max(1.0, aspect_ratio - 0.25)  #오차 0.25
+    max_ratio = min(2.0, aspect_ratio + 0.25)
+
+    # 슬라이더 생성 (정수형이므로 10x 스케일 사용)
     cv2.namedWindow("Detected Rectangle")
     cv2.createTrackbar("Brightness Threshold", "Detected Rectangle", 120, 255, trackbar)
-    cv2.createTrackbar("Min Aspect Ratio", "Detected Rectangle", 10, 20, trackbar)
-    cv2.createTrackbar("Max Aspect Ratio", "Detected Rectangle", 15, 20, trackbar)
+    cv2.createTrackbar("Min W/H Ratio", "Detected Rectangle", int(min_ratio * 10), 20, trackbar)
+    cv2.createTrackbar("Max W/H Ratio", "Detected Rectangle", int(max_ratio * 10), 20, trackbar)
 
 def slider_value():
     brightness_threshold = cv2.getTrackbarPos("Brightness Threshold", "Detected Rectangle")
-    min_aspect_ratio = cv2.getTrackbarPos("Min Aspect Ratio", "Detected Rectangle") / 10.0
-    max_aspect_ratio = cv2.getTrackbarPos("Max Aspect Ratio", "Detected Rectangle") / 10.0
+    min_aspect_ratio = cv2.getTrackbarPos("Min W/H Ratio", "Detected Rectangle") / 10.0
+    max_aspect_ratio = cv2.getTrackbarPos("Max W/H Ratio", "Detected Rectangle") / 10.0
     return brightness_threshold, min_aspect_ratio, max_aspect_ratio
 
 def grid_visual(grid_array):
