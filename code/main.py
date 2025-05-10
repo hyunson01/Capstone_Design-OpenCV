@@ -4,6 +4,7 @@ import os
 import cv2
 import numpy as np
 import json
+import time
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 ICBS_PATH = os.path.join(CURRENT_DIR, '..', 'MAPF-ICBS', 'code')
@@ -228,8 +229,10 @@ def apply_start_delays(paths, starts, delays):
 
 def main():
     global agents, paths, manager
-    cap, fps = camera_open()
+    video_path = r"C:/img/test1.mp4"
+    cap, fps = camera_open(video_path)
     frame_count = 0
+    prev_time = time.time()
     
     base_grid = load_grid(grid_row, grid_col)
     grid_array = base_grid.copy()
@@ -243,8 +246,13 @@ def main():
     cv2.setMouseCallback("CBS Grid", mouse_event)
 
     while True:
+        current_time = time.time()
+        fps = 1 / (current_time - prev_time)
+        prev_time = current_time
+
+        print(f"Current FPS: {fps:.2f}")
         frame_count += 1
-        time = frame_count / fps
+        elapsed_time = frame_count / fps
         frame, gray = frame_process(cap, camera_matrix, dist_coeffs)
         vis = grid_visual(grid_array.copy())
         draw_paths(vis, paths)
@@ -264,7 +272,7 @@ def main():
             
             tags = tag_detector.tag_detect(gray)
             tag_detector.tags_process(tags, object_points, frame_count, board_origin_tvec, cm_per_pixel, frame, camera_matrix, dist_coeffs)
-            tracking_manager.update_all(tag_info, time)
+            tracking_manager.update_all(tag_info, elapsed_time)
             
             update_agents_from_tags(tag_info) 
 

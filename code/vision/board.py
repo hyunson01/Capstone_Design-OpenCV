@@ -18,7 +18,7 @@ def board_detect(gray):
             x, y, w, h = cv2.boundingRect(approx)
             aspect_ratio = float(w) / h
 
-            if area > 5000 and min_aspect_ratio < aspect_ratio < max_aspect_ratio:
+            if area > 2000 and min_aspect_ratio < aspect_ratio < max_aspect_ratio:
                 largest_area = area
                 largest_rect = approx
 

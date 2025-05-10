@@ -1,16 +1,22 @@
 import cv2
 
-def camera_open():
-    preferred_order = [1, 0]
-    for cam_id in preferred_order:
-        cap = cv2.VideoCapture(cam_id)
-        if cap.isOpened():
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
-            fps = cap.get(cv2.CAP_PROP_FPS)
+def camera_open(video_path=None):
+    if video_path is None:
+        preferred_order = [1, 0]
+        for cam_id in preferred_order:
+            cap = cv2.VideoCapture(cam_id)
             print(f"Using camera {cam_id}")
-            return cap, fps
-    raise Exception("Error: No usable external webcam found.")
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    else:
+        cap = cv2.VideoCapture(video_path)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+            
+    if cap.isOpened():
+        
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        return cap, fps
 
 def camera_frame(cap):
     ret, frame = cap.read()
