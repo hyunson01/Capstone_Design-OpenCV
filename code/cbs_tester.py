@@ -23,7 +23,6 @@ import json
 # 전역 변수
 agents = []
 paths = []
-manager = None
 sim = None
 broker = FakeMQTTBroker()
 pathfinder = None
@@ -50,64 +49,42 @@ def mouse_event(event, x, y, flags, param):
 
     # ---------- 1. 출발지 클릭 & 로봇 생성 ----------
     if event == cv2.EVENT_LBUTTONDOWN:
-        
-        # 생성 중이면 로봇을 생성
-        if selected_robot_id is not None:
-            row = y // sim.cell_size
-            col = x // sim.cell_size
-            pos = (row, col)
 
-            if selected_robot_id in sim.robots:
-                robot = sim.robots[selected_robot_id]
-                robot.position = pos
-                robot.start_pos = pos
-                robot.target_pos = pos
-                sim.robot_info[selected_robot_id]['start'] = pos
-            else:
-                robot = sim.add_robot(selected_robot_id, broker, start_pos=pos)
-                
-            selected_robot_id = None
-            return
+        if selected_robot_id is None:
+            return  # 아무 것도 선택 안 된 경우 무시
         
-        # 생성 중이 아니라면 출발지 입력력
+        pos = (row, col)
+
+        # 로봇 생성 또는 위치 초기화
+        if selected_robot_id in sim.robots:
+            robot = sim.robots[selected_robot_id]
+            robot.position = pos
+            robot.start_pos = pos
+            robot.target_pos = pos
+            sim.robot_info[selected_robot_id]['start'] = pos
         else:
-            print(f"Start set at ({row}, {col})")
+            robot = sim.add_robot(selected_robot_id, broker, start_pos=pos)
 
-            # 1‑A. 이미 완성된 agent가 한도(PRESET_IDS)만큼이면 생성 제한
-            if len(complete_agents) >= len(PRESET_IDS):
-                print("더 이상 agent를 생성할 수 없습니다.")
-                return
-
-            # 1‑B. goal‑only agent에 start 채우기
+        # 에이전트 생성 + start 설정
+        if all(a.id != selected_robot_id for a in agents):
+            agent = Agent(id=selected_robot_id, start=pos, goal=None, delay=0)
+            agents.append(agent)
+        else:
+            # 이미 존재하는 agent라면 start만 업데이트 (정합성 보장)
             for agent in agents:
-                if agent.start is None and agent.goal is not None:
-                    agent.start = (row, col)
-                    updated = True
+                if agent.id == selected_robot_id:
+                    agent.start = pos
                     break
 
-            # 1‑C. start‑only agent의 start 덮어쓰기
-            if not updated:
-                for agent in agents:
-                    if agent.start is not None and agent.goal is None:
-                        agent.start = (row, col)
-                        updated = True
-                        break
+        selected_robot_id = None
+        return
 
-            # 1‑D. 둘 다 없으면 새 agent 생성
-            if not updated:
-                # 사용하지 않은 ID 선택
-                used_ids = {a.id for a in agents}
-                avail_ids = [pid for pid in PRESET_IDS if pid not in used_ids]
-                if not avail_ids:
-                    print("더 이상 agent를 생성할 수 없습니다.")
-                    return
-                new_id = avail_ids[0]
-                agent = Agent(id=new_id, start=(row, col), goal=None, delay=0)
-                agents.append(agent)
-                updated = True
 
     # ---------- 2. 도착지 클릭 ----------
     elif event == cv2.EVENT_RBUTTONDOWN:
+        if selected_robot_id is None:
+            return  # 아무 것도 선택 안 된 경우 무시
+
         print(f"Goal set at ({row}, {col})")
 
         # 2‑A. 이미 완성된 agent가 한도만큼이면 생성 제한
@@ -117,7 +94,7 @@ def mouse_event(event, x, y, flags, param):
 
         # 2‑B. start‑only agent에 goal 채우기
         for agent in agents:
-            if agent.goal is None and agent.start is not None:
+            if agent.id == selected_robot_id and agent.goal is None and agent.start is not None:
                 agent.goal = (row, col)
                 updated = True
                 break
@@ -125,7 +102,7 @@ def mouse_event(event, x, y, flags, param):
         # 2‑C. goal‑only agent의 goal 덮어쓰기
         if not updated:
             for agent in agents:
-                if agent.goal is not None and agent.start is None:
+                if agent.id == selected_robot_id and agent.goal is not None and agent.start is None:
                     agent.goal = (row, col)
                     updated = True
                     break
@@ -133,14 +110,25 @@ def mouse_event(event, x, y, flags, param):
         # 2‑D. 둘 다 없으면 새 agent 생성 (goal‑only)
         if not updated:
             used_ids = {a.id for a in agents}
-            avail_ids = [pid for pid in PRESET_IDS if pid not in used_ids]
-            if not avail_ids:
-                print("더 이상 agent를 생성할 수 없습니다.")
-                return
-            new_id = avail_ids[0]
-            agent = Agent(id=new_id, start=None, goal=(row, col), delay=0)
-            agents.append(agent)
-            updated = True
+            if selected_robot_id in used_ids:
+                # ✅ 이미 존재하는 agent의 goal을 덮어쓰기 (이동 중 goal 변경용)
+                for agent in agents:
+                    if agent.id == selected_robot_id:
+                        agent.goal = (row, col)
+                        updated = True
+                        print(f"Agent {agent.id}의 도착지를 ({row}, {col})로 변경")
+                        break
+            else:
+                if selected_robot_id not in PRESET_IDS:
+                    print(f"{selected_robot_id}는 허용된 ID 목록에 없습니다.")
+                    return
+                agent = Agent(id=selected_robot_id, start=None, goal=(row, col), delay=0)
+                agents.append(agent)
+                updated = True
+
+        selected_robot_id = None
+        return
+
 
     # ---------- 3. 공통 후처리 ----------
     if updated:
@@ -159,11 +147,23 @@ def create_agent(start=None, goal=None, delay=None, agent_id=None):
         delay = random.randint(0, 5)
     return Agent(id=agent_id, start=start, goal=goal, delay=delay)
 
+#에이전트 시작 위치를 로봇 현재 위치로 설정
+def get_start_from_robot():
+    for agent in agents:
+        if agent.id in sim.robots:
+            robot = sim.robots[agent.id]
+            pos = robot.target_pos if robot.moving else robot.position  # 핵심 변경
+            int_pos = tuple(map(int, pos))
+            agent.start = int_pos
+            sim.robot_info[agent.id]['start'] = int_pos
+
+
 #CBS 계산
 def compute_cbs():
     global paths, pathfinder, grid_array
 
     grid_array = load_grid(grid_row, grid_col)
+    get_start_from_robot()
 
     if pathfinder is None:
         pathfinder = PathFinder(grid_array)
@@ -196,13 +196,14 @@ def compute_cbs():
         CommandSet.send_command_sets(command_sets)
     except Exception as e:
         print(f"명령 전송 중 오류 발생: {e}")
+
+    broker.send_command_sets(command_sets)
         
     if sim:
         for agent in new_agents:
             if agent.id in sim.robots:
                 sim.robot_info[agent.id]['path'] = agent.get_final_path()
                 sim.robot_info[agent.id]['goal'] = agent.goal
-
 
 #경로 색칠용 코드
 def draw_paths(vis_img, paths):
@@ -226,17 +227,9 @@ def draw_paths(vis_img, paths):
                 overlay = vis_img.copy()
                 cv2.rectangle(overlay, (x, y), (x + cell_size, y + cell_size), color, -1)
                 cv2.addWeighted(overlay, 0.3, vis_img, 0.7, 0, vis_img)
-         
-def apply_start_delays(paths, starts, delays):
-    delayed_paths = []
-    for i, path in enumerate(paths):
-        delay = delays[i]
-        hold = [starts[i]] * delay
-        delayed_paths.append(hold + path)
-    return delayed_paths
     
 def main():
-    global agents, paths, manager, grid_array, selected_robot_id, sim
+    global agents, paths, grid_array, selected_robot_id, sim
     grid_array = load_grid(grid_row, grid_col)
     cv2.namedWindow("CBS Grid")
     cv2.setMouseCallback("CBS Grid", mouse_event)
@@ -248,10 +241,14 @@ def main():
         draw_paths(vis, paths)
 
         for agent in agents:
-            if agent.start:
-                x, y = agent.start[1] * cell_size, agent.start[0] * cell_size
+            if agent.id in sim.robots:
+                pos = sim.robots[agent.id].get_position()
+                x, y = int(pos[1] * cell_size), int(pos[0] * cell_size)
                 cv2.circle(vis, (x + cell_size//2, y + cell_size//2), 5, (0, 255, 0), -1)
                 cv2.putText(vis, f"S{agent.id}", (x + 2, y + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
+
+
+
         for agent in agents:
             if agent.goal:
                 x, y = agent.goal[1] * cell_size, agent.goal[0] * cell_size
@@ -286,21 +283,12 @@ def main():
                 animation.save("demo.gif", speed=1.0)
             else:
                 print("No paths available to animate.")
-        elif key == ord('m'):
-            if manager:
-                print("--- Current Agents ---")
-                print(manager.get_agents())  # 그대로 OK
-            else:
-                print("No CBSManager initialized yet.")
         elif key == ord(' '):  # ✅ Spacebar 눌러서 일시정지
             sim.paused = not sim.paused
             print("Paused" if sim.paused else "Resumed")
         
         elif key == ord('c'):  # 'c' 키로 CBS 재계산
-            if all(a.start and a.goal for a in agents):
-                compute_cbs()
-            else:
-                print("⚠️  start 또는 goal이 비어 있는 에이전트가 있습니다.")
+            compute_cbs()
             
             
     cv2.destroyAllWindows()

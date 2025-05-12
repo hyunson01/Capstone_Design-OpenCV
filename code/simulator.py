@@ -48,73 +48,73 @@ class Simulator:
             color = self.colors[robot.robot_id % len(self.colors)]
             cv2.circle(vis, (cx, cy), self.cell_size // 3, color, -1)
                    
-    # 로봇 출발지, 도착지 그리기
-    def draw_start_goal(self, vis):
-        overlay = vis.copy()
-        for robot_id, info in self.robot_info.items():
-            start = info.get('start')
-            goal = info.get('goal')
-            color = self.colors[robot_id % len(self.colors)]
+    # # 로봇 출발지, 도착지 그리기
+    # def draw_start_goal(self, vis):
+    #     overlay = vis.copy()
+    #     for robot_id, info in self.robot_info.items():
+    #         start = info.get('start')
+    #         goal = info.get('goal')
+    #         color = self.colors[robot_id % len(self.colors)]
             
-            # 🟪 출발지 그리기 (네모)
-            if start:
-                top_left = (start[1] * self.cell_size + self.cell_size // 4,
-                            start[0] * self.cell_size + self.cell_size // 4)
-                bottom_right = (start[1] * self.cell_size + self.cell_size * 3 // 4,
-                                start[0] * self.cell_size + self.cell_size * 3 // 4)
-                cv2.rectangle(overlay, top_left, bottom_right, color, -1)
+    #         # 🟪 출발지 그리기 (네모)
+    #         if start:
+    #             top_left = (start[1] * self.cell_size + self.cell_size // 4,
+    #                         start[0] * self.cell_size + self.cell_size // 4)
+    #             bottom_right = (start[1] * self.cell_size + self.cell_size * 3 // 4,
+    #                             start[0] * self.cell_size + self.cell_size * 3 // 4)
+    #             cv2.rectangle(overlay, top_left, bottom_right, color, -1)
 
-            # 🔺 도착지 그리기 (삼각형)
-            if goal:
-                center_x = goal[1] * self.cell_size + self.cell_size // 2
-                center_y = goal[0] * self.cell_size + self.cell_size // 2
-                pts = np.array([
-                    (center_x, center_y - self.cell_size // 4),
-                    (center_x - self.cell_size // 4, center_y + self.cell_size // 4),
-                    (center_x + self.cell_size // 4, center_y + self.cell_size // 4)
-                ], np.int32)
-                cv2.fillPoly(overlay, [pts], color)
+    #         # 🔺 도착지 그리기 (삼각형)
+    #         if goal:
+    #             center_x = goal[1] * self.cell_size + self.cell_size // 2
+    #             center_y = goal[0] * self.cell_size + self.cell_size // 2
+    #             pts = np.array([
+    #                 (center_x, center_y - self.cell_size // 4),
+    #                 (center_x - self.cell_size // 4, center_y + self.cell_size // 4),
+    #                 (center_x + self.cell_size // 4, center_y + self.cell_size // 4)
+    #             ], np.int32)
+    #             cv2.fillPoly(overlay, [pts], color)
                 
-        # ✅ 반투명으로 합치기
-        cv2.addWeighted(overlay, 0.3, vis, 0.7, 0, vis)
+    #     # ✅ 반투명으로 합치기
+    #     cv2.addWeighted(overlay, 0.3, vis, 0.7, 0, vis)
        
     # 로봇 경로 그리기
-    def draw_paths(self, vis):
-        overlay = vis.copy()
-        for robot_id, info in self.robot_info.items():
-            color = self.colors[robot_id % len(self.colors)]
+    # def draw_paths(self, vis):
+    #     overlay = vis.copy()
+    #     for robot_id, info in self.robot_info.items():
+    #         color = self.colors[robot_id % len(self.colors)]
 
-            past_path = self.robot_past_paths.get(robot_id, [])
-            current_path = info['path'] if info['path'] else []
+    #         past_path = self.robot_past_paths.get(robot_id, [])
+    #         current_path = info['path'] if info['path'] else []
 
-            # 🔥 경로 연결할 리스트
-            full_path = []
+    #         # 🔥 경로 연결할 리스트
+    #         full_path = []
 
-            if past_path:
-                full_path.extend(past_path)
+    #         if past_path:
+    #             full_path.extend(past_path)
 
-            if current_path:
-                # 🔥 지나온 마지막 위치와 새로운 경로 첫 위치가 다르면, 연결 끊기
-                if not past_path or past_path[-1] == current_path[0]:
-                    full_path.extend(current_path)
-                else:
-                    print(f"Robot {robot_id}: Path discontinuity detected. Not connecting past and current paths.")
-                    # 지나온 경로 그린 다음, 새 경로는 따로 그린다.
+    #         if current_path:
+    #             # 🔥 지나온 마지막 위치와 새로운 경로 첫 위치가 다르면, 연결 끊기
+    #             if not past_path or past_path[-1] == current_path[0]:
+    #                 full_path.extend(current_path)
+    #             else:
+    #                 print(f"Robot {robot_id}: Path discontinuity detected. Not connecting past and current paths.")
+    #                 # 지나온 경로 그린 다음, 새 경로는 따로 그린다.
 
-            # 🔥 경로 그리기
-            for i in range(1, len(full_path)):
-                p1 = (full_path[i-1][1] * self.cell_size + self.cell_size // 2, full_path[i-1][0] * self.cell_size + self.cell_size // 2)
-                p2 = (full_path[i][1] * self.cell_size + self.cell_size // 2, full_path[i][0] * self.cell_size + self.cell_size // 2)
-                cv2.line(overlay, p1, p2, color, thickness=3)
+    #         # 🔥 경로 그리기
+    #         for i in range(1, len(full_path)):
+    #             p1 = (full_path[i-1][1] * self.cell_size + self.cell_size // 2, full_path[i-1][0] * self.cell_size + self.cell_size // 2)
+    #             p2 = (full_path[i][1] * self.cell_size + self.cell_size // 2, full_path[i][0] * self.cell_size + self.cell_size // 2)
+    #             cv2.line(overlay, p1, p2, color, thickness=3)
 
-        cv2.addWeighted(overlay, 0.3, vis, 0.7, 0, vis)
+    #     cv2.addWeighted(overlay, 0.3, vis, 0.7, 0, vis)
 
     # 한 프레임 그리기
     def run_once(self):
         self.vis = self.create_grid()  # 배경(맵) 먼저 그림
         
-        self.draw_paths(self.vis)          # 경로 먼저 그리기
-        self.draw_start_goal(self.vis)      # 출발지, 도착지 그리기
+        # self.draw_paths(self.vis)          # 경로 먼저 그리기
+        # self.draw_start_goal(self.vis)      # 출발지, 도착지 그리기
         self.draw_robots(self.vis)                  # 로봇(보간 이동) 그리기
         
         if not self.paused:
@@ -156,18 +156,16 @@ class Robot:
         self.robot_id = robot_id
         self.broker = broker
         self.position = start_pos  # (row, col)
-        self.start = start_pos     # 출발지 저장
-        self.goal = None           # 목표지는 나중에 설정될 수 있음
-        self.path = []
-        self.current_index = 0
         self.moving = False         # 현재 1칸 이동 중인지
         self.start_pos = start_pos  # 보간 시작 좌표
         self.target_pos = start_pos # 보간 목표 좌표
         self.progress = 0.0         # 0.0~1.0 보간 진행도
         self.speed = 0.1            # 1 tick당 이동 비율 (ex. 0.1 → 10 tick 동안 1칸 이동)
         self.direction = "north"   # 초기 방향
+        self.current_command = None
         self.command_queue = []
         self.broker.subscribe(f"robot/{self.robot_id}/move", self.on_receive_command)
+        
         print(f"Robot {self.robot_id}: 구독 시작 (토픽: robot/{self.robot_id}/move)")
     
     def set_path(self, path):
@@ -176,8 +174,15 @@ class Robot:
         self.progress = 0.0
 
     def on_receive_command(self, compressed_command):
-        print(f"[Robot {self.robot_id}] 명령: {compressed_command}")
-        self.command_queue = self.parse_compressed_command(compressed_command)
+        parsed = self.parse_compressed_command(compressed_command)
+        if self.moving or self.current_command is not None:
+            print(f"[Robot {self.robot_id}] 이동 중 → 기존 명령 유지, queue 덮어쓰기")
+            self.command_queue = parsed  # 기존 대기열 교체 (덮어쓰기)
+        else:
+            # 아무것도 진행 중이 아니면 바로 시작
+            print(f"[Robot {self.robot_id}] 정지 상태 → 명령 즉시 실행")
+            self.current_command = parsed.pop(0) if parsed else None
+            self.command_queue = parsed
 
     def execute_command(self, command):
         if command == "forward":
@@ -244,9 +249,12 @@ class Robot:
                 self.position = self.target_pos
                 self.moving = False
         else:
-            if self.command_queue:
-                command = self.command_queue.pop(0)
-                self.execute_compressed_command(command)
+            if self.current_command is None and self.command_queue:
+                self.current_command = self.command_queue.pop(0)
+
+            if self.current_command:
+                self.execute_compressed_command(self.current_command)
+                self.current_command = None
 
     
     def get_position(self):

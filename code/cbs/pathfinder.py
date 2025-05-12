@@ -14,6 +14,7 @@ class PathFinder:
         ]
         self.manager = CBSManager(solver_type="CBS", disjoint=True, visualize_result=False)
 
+
     def compute_paths(self, agents: list[Agent]) -> list[Agent]:
         """
         agents: List of Agent objects with start, goal, and delay already set.
@@ -23,6 +24,27 @@ class PathFinder:
         self.manager.load_instance(self.map_array, agents)
         self.manager.run()
         return self.manager.get_agents()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     # def generate_commands(self, agents: list[Agent], initial_dir: str = "north") -> dict[int, list[str]]:
     #     """

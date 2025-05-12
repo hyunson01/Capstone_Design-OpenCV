@@ -5,13 +5,21 @@ def camera_open(video_path=None):
         preferred_order = [1, 0]
         for cam_id in preferred_order:
             cap = cv2.VideoCapture(cam_id)
-            print(f"Using camera {cam_id}")
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+            if cap.isOpened():
+                print(f"Using camera {cam_id}")
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+                fps = cap.get(cv2.CAP_PROP_FPS)
+                return cap, fps
+        # 모든 시도가 실패한 경우
+        raise RuntimeError("Error: Cannot open any camera.")
     else:
         cap = cv2.VideoCapture(video_path)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+        if not cap.isOpened():
+            raise RuntimeError(f"Error: Cannot open video file {video_path}")
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        print(f"Opened video file {video_path} with fps: {fps}")
+        return cap, fps
             
     if cap.isOpened():
         

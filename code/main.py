@@ -229,7 +229,7 @@ def apply_start_delays(paths, starts, delays):
 def main():
     global agents, paths, manager
     video_path = r"C:/img/test1.mp4"
-    cap, fps = camera_open(video_path)
+    cap, fps = camera_open()
     frame_count = 0
     prev_time = time.time()
     
