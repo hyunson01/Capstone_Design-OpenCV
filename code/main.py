@@ -27,7 +27,6 @@ from visualize import Animation
 # 전역 변수
 agents = []
 paths = []
-current_agent = 0
 manager = None
 pathfinder = None
 grid_array = None

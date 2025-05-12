@@ -8,19 +8,24 @@ class Simulator:
         self.map_array = map_array
         self.colors = colors
         self.cell_size = cell_size
-        self.robots = []
+        self.robots = {}
         self.vis = self.create_grid()
-        self.paused = False
+        self.paused = True
         self.robot_info = {}
         self.robot_past_paths = {}
 
+    # 로봇 추가
     def add_robot(self, robot_id, broker, start_pos=(0, 0)):
+        if robot_id in self.robots:
+            return self.robots[robot_id]  # 이미 있으면 기존 객체 반환
+
         robot = Robot(robot_id, broker, start_pos)
-        self.robots.append(robot)
+        self.robots[robot_id] = robot
         print(f"Simulator: 로봇 {robot_id} 추가 완료. 시작 위치: {start_pos}")
         self.robot_info[robot_id] = {'path': None, 'goal': None, 'start': start_pos}
         return robot
 
+    # 맵 그리기
     def create_grid(self):
         rows, cols = self.map_array.shape
         vis = np.ones((rows * self.cell_size, cols * self.cell_size, 3), dtype=np.uint8) * 255
@@ -33,16 +38,17 @@ class Simulator:
                                   (0, 0, 0), -1)
         return vis
 
+    # 로봇 그리기
     def draw_robots(self, vis):
-        for robot in self.robots:
+        for robot in self.robots.values():
             pos = robot.get_position()
             cx = int(pos[1] * self.cell_size + self.cell_size // 2)
             cy = int(pos[0] * self.cell_size + self.cell_size // 2)
             
             color = self.colors[robot.robot_id % len(self.colors)]
             cv2.circle(vis, (cx, cy), self.cell_size // 3, color, -1)
-           
-    """            
+                   
+    # 로봇 출발지, 도착지 그리기
     def draw_start_goal(self, vis):
         overlay = vis.copy()
         for robot_id, info in self.robot_info.items():
@@ -71,9 +77,8 @@ class Simulator:
                 
         # ✅ 반투명으로 합치기
         cv2.addWeighted(overlay, 0.3, vis, 0.7, 0, vis)
-    """
-
-    """           
+       
+    # 로봇 경로 그리기
     def draw_paths(self, vis):
         overlay = vis.copy()
         for robot_id, info in self.robot_info.items():
@@ -103,51 +108,45 @@ class Simulator:
                 cv2.line(overlay, p1, p2, color, thickness=3)
 
         cv2.addWeighted(overlay, 0.3, vis, 0.7, 0, vis)
-    """
 
-
-
+    # 한 프레임 그리기
     def run_once(self):
         self.vis = self.create_grid()  # 배경(맵) 먼저 그림
         
-        # 🔥 여기에 추가
-        # self.draw_paths(self.vis)          # 경로 먼저 그리기
-        # self.draw_start_goal(self.vis)      # 출발지, 도착지 그리기
-
+        self.draw_paths(self.vis)          # 경로 먼저 그리기
+        self.draw_start_goal(self.vis)      # 출발지, 도착지 그리기
         self.draw_robots(self.vis)                  # 로봇(보간 이동) 그리기
-        self.step()
+        
+        if not self.paused:
+            self.tick()  # 로봇 이동 처리 및 위치 기록
+        
         cv2.imshow("Simulator", self.vis)
     
-    def get_interpolated_position(self):
-        if not self.path or self.current_index >= len(self.path) - 1:
-            return self.path[-1]
+    # 로봇 경로 보간
+    # def get_interpolated_position(self):
+    #     if not self.path or self.current_index >= len(self.path) - 1:
+    #         return self.path[-1]
 
-        current_pos = np.array(self.path[self.current_index])
-        next_pos = np.array(self.path[self.current_index + 1])
-        progress = self.substep / self.substeps_per_move
-        interp_pos = (1 - progress) * current_pos + progress * next_pos
-        return interp_pos
+    #     current_pos = np.array(self.path[self.current_index])
+    #     next_pos = np.array(self.path[self.current_index + 1])
+    #     progress = self.substep / self.substeps_per_move
+    #     interp_pos = (1 - progress) * current_pos + progress * next_pos
+    #     return interp_pos
     
+    # 로봇 한 틱 이동
     def tick(self):
-        for robot in self.robots:
+        for robot in self.robots.values():
             robot.tick()
             
-    def step(self):
-        if not self.paused:
-            self.tick()
-            
-            # 🔥 로봇 이동할 때 지나온 경로 저장
-            for robot in self.robots:
-                pos = tuple(map(int, robot.get_position()))  # (정수 변환)
-                if robot.robot_id not in self.robot_past_paths:
-                    self.robot_past_paths[robot.robot_id] = []
-                if not self.robot_past_paths[robot.robot_id] or self.robot_past_paths[robot.robot_id][-1] != pos:
-                    self.robot_past_paths[robot.robot_id].append(pos)
-
-            
+            pos = tuple(map(int, robot.get_position()))
+            if robot.robot_id not in self.robot_past_paths:
+                self.robot_past_paths[robot.robot_id] = []
+            if not self.robot_past_paths[robot.robot_id] or self.robot_past_paths[robot.robot_id][-1] != pos:
+                self.robot_past_paths[robot.robot_id].append(pos)
+                    
     def get_robot_current_positions(self):
         positions = {}
-        for robot in self.robots:
+        for robot in self.robots.values():
             positions[robot.robot_id] = robot.get_position()
         return positions
 
