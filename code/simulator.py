@@ -15,11 +15,11 @@ class Simulator:
         self.robot_past_paths = {}
 
     # 로봇 추가
-    def add_robot(self, robot_id, broker, start_pos=(0, 0)):
+    def add_robot(self, robot_id, broker, start_pos=(0, 0), direction="north"):
         if robot_id in self.robots:
             return self.robots[robot_id]  # 이미 있으면 기존 객체 반환
 
-        robot = Robot(robot_id, broker, start_pos)
+        robot = Robot(robot_id, broker, start_pos, direction=direction)
         self.robots[robot_id] = robot
         print(f"Simulator: 로봇 {robot_id} 추가 완료. 시작 위치: {start_pos}")
         self.robot_info[robot_id] = {'path': None, 'goal': None, 'start': start_pos}
@@ -47,6 +47,22 @@ class Simulator:
             
             color = self.colors[robot.robot_id % len(self.colors)]
             cv2.circle(vis, (cx, cy), self.cell_size // 3, color, -1)
+            
+            # 삼각형 추가 (정면 방향 표시)
+            dir_vecs = {
+                "north": (0, -1),
+                "east":  (1, 0),
+                "south": (0, 1),
+                "west":  (-1, 0)
+            }
+            dx, dy = dir_vecs[robot.direction]
+            length = self.cell_size // 4
+            tip = (int(cx + dx * length), int(cy + dy * length))
+            left = (int(cx + dy * length // 2), int(cy - dx * length // 2))
+            right = (int(cx - dy * length // 2), int(cy + dx * length // 2))
+            triangle_cnt = np.array([tip, left, right], np.int32)
+            cv2.fillPoly(vis, [triangle_cnt], (0, 0, 0))  # 검은색 삼각형
+
                    
     # # 로봇 출발지, 도착지 그리기
     # def draw_start_goal(self, vis):
@@ -152,7 +168,7 @@ class Simulator:
 
 
 class Robot:
-    def __init__(self, robot_id, broker, start_pos):
+    def __init__(self, robot_id, broker, start_pos, direction="north"):
         self.robot_id = robot_id
         self.broker = broker
         self.position = start_pos  # (row, col)
@@ -161,7 +177,7 @@ class Robot:
         self.target_pos = start_pos # 보간 목표 좌표
         self.progress = 0.0         # 0.0~1.0 보간 진행도
         self.speed = 0.1            # 1 tick당 이동 비율 (ex. 0.1 → 10 tick 동안 1칸 이동)
-        self.direction = "north"   # 초기 방향
+        self.direction = direction  # 초기 방향
         self.current_command = None
         self.command_queue = []
         self.broker.subscribe(f"robot/{self.robot_id}/move", self.on_receive_command)

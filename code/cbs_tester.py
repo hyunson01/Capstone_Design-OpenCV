@@ -181,7 +181,11 @@ def compute_cbs():
     print("Paths updated via PathFinder.")
 
     # 로봇 명령 전송
-    command_sets = [CommandSet(str(agent.id), agent.get_final_path()) for agent in new_agents]
+    command_sets = []
+    for agent in new_agents:
+        robot_dir = sim.robots[agent.id].direction if agent.id in sim.robots else "north"
+        command_sets.append(CommandSet(str(agent.id), agent.get_final_path(), initial_dir=robot_dir))
+
 
 # 전송할 JSON 문자열을 미리 출력
     try:
