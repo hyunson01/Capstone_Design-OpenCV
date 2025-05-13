@@ -10,14 +10,14 @@ sys.path.append(os.path.normpath(ICBS_PATH))
 import cv2
 import numpy as np
 from grid import load_grid
-from visual import grid_visual, cell_size
+from visual import grid_visual, draw_agent_info_window
 from cbs.agent import Agent
 from visualize import Animation
 from simulator import Simulator
 from fake_mqtt import FakeMQTTBroker
 from commandSendTest2 import CommandSet
 from cbs.pathfinder import PathFinder
-from config import COLORS, grid_row, grid_col
+from config import COLORS, grid_row, grid_col, cell_size
 import json
 
 # 전역 변수
@@ -29,8 +29,13 @@ pathfinder = None
 grid_array = None
 selected_robot_id = None # 생성할 때 선택된 로봇 ID
 
+delay_input_mode = False
+delay_input_buffer = ""
+
+random_mode_enabled = False
+
 # 사용할 ID 목록
-PRESET_IDS = [1,2,3,4,5,6,7,8,9,10,11,12]  # 예시: 1~12까지의 ID 사용
+PRESET_IDS = [0,1,2,3,4,5,6,7,8,9]  # 예시: 1~12까지의 ID 사용
 
 # 마우스 콜백 함수
 def mouse_event(event, x, y, flags, param):
@@ -139,13 +144,13 @@ def mouse_event(event, x, y, flags, param):
             print(f"Agent {sorted(ready_ids)} 준비 완료. CBS 실행.")
             compute_cbs()
 
-#에이전트 초기화
-def create_agent(start=None, goal=None, delay=None, agent_id=None):
-    if agent_id is None:
-        agent_id = len(agents)
-    if delay is None:
-        delay = random.randint(0, 5)
-    return Agent(id=agent_id, start=start, goal=goal, delay=delay)
+# #에이전트 초기화
+# def create_agent(start=None, goal=None, delay=None, agent_id=None):
+#     if agent_id is None:
+#         agent_id = len(agents)
+#     if delay is None:
+#         delay = random.randint(0, 5)
+#     return Agent(id=agent_id, start=start, goal=goal, delay=delay)
 
 #에이전트 시작 위치를 로봇 현재 위치로 설정
 def get_start_from_robot():
@@ -157,6 +162,23 @@ def get_start_from_robot():
             agent.start = int_pos
             sim.robot_info[agent.id]['start'] = int_pos
 
+# 에이전트 초기 방향을 로봇의 회전 방향으로 설정
+def get_direction_from_robot():
+    for agent in agents:
+        if agent.id in sim.robots:
+            robot = sim.robots[agent.id]
+            directions = ["north", "east", "south", "west"]
+            idx = directions.index(robot.direction)
+
+            if robot.rotating and robot.rotation_dir:
+                delta = 1 if robot.rotation_dir == "right" else -1
+                expected_dir = directions[(idx + delta) % 4]
+            else:
+                expected_dir = robot.direction
+
+            agent.initial_dir = expected_dir  # CommandSet 생성 시 참조할 수 있게 저장
+
+
 
 #CBS 계산
 def compute_cbs():
@@ -167,6 +189,17 @@ def compute_cbs():
 
     if pathfinder is None:
         pathfinder = PathFinder(grid_array)
+
+    # CBS 계산 전 모든 delay를 1회용으로 처리
+    for agent in agents:
+        if agent.start is not None and agent.goal is not None:
+            if agent.delay > 0:
+                print(f"[딜레이 적용] Agent {agent.id} → delay {agent.delay} 적용 후 제거")
+                delay = agent.delay
+                agent.delay = 0  # 딜레이는 1회만 적용되도록 초기화
+            else:
+                delay = 0
+            agent._applied_delay = delay  # 내부 추적용, 없어도 됨
 
     new_agents = pathfinder.compute_paths(agents)
     new_paths = [agent.get_final_path() for agent in new_agents]
@@ -183,8 +216,22 @@ def compute_cbs():
     # 로봇 명령 전송
     command_sets = []
     for agent in new_agents:
-        robot_dir = sim.robots[agent.id].direction if agent.id in sim.robots else "north"
-        command_sets.append(CommandSet(str(agent.id), agent.get_final_path(), initial_dir=robot_dir))
+        print(f"[DEBUG] Agent {agent.id}: delay={agent.delay}, path={agent.get_final_path()}")
+        if agent.id in sim.robots:
+            robot = sim.robots[agent.id]
+
+            # 예상 방향 계산 (회전 보간 포함)
+            directions = ["north", "east", "south", "west"]
+            idx = directions.index(robot.direction)
+
+            if robot.rotating and robot.rotation_dir:
+                delta = 1 if robot.rotation_dir == "right" else -1
+                expected_dir = directions[(idx + delta) % 4]
+            else:
+                expected_dir = robot.direction
+
+            
+            command_sets.append(CommandSet(str(agent.id), agent.get_final_path(), initial_dir=expected_dir))
 
 
 # 전송할 JSON 문자열을 미리 출력
@@ -231,14 +278,41 @@ def draw_paths(vis_img, paths):
                 overlay = vis_img.copy()
                 cv2.rectangle(overlay, (x, y), (x + cell_size, y + cell_size), color, -1)
                 cv2.addWeighted(overlay, 0.3, vis_img, 0.7, 0, vis_img)
-    
+
+# 로봇 도착 시 재계산
+def on_robot_arrival(robot_id, pos):
+    global agents, sim
+
+    if not random_mode_enabled:
+        return
+
+    empty_cells = [(r, c) for r in range(grid_array.shape[0])
+                             for c in range(grid_array.shape[1])
+                             if grid_array[r, c] == 0 and (r, c) != pos]
+
+    if not empty_cells:
+        print(f"[경고] 도착지 후보가 없음 (로봇 {robot_id})")
+        return
+
+    new_goal = random.choice(empty_cells)
+    print(f"[랜덤 모드] 로봇 {robot_id} 새 목표 {new_goal}")
+
+    for agent in agents:
+        if agent.id == robot_id:
+            agent.start = pos
+            agent.goal = new_goal
+            break
+
+    compute_cbs()
+
 def main():
-    global agents, paths, grid_array, selected_robot_id, sim
+    global agents, paths, grid_array, selected_robot_id, sim, delay_input_buffer, delay_input_mode, random_mode_enabled
     grid_array = load_grid(grid_row, grid_col)
     cv2.namedWindow("CBS Grid")
     cv2.setMouseCallback("CBS Grid", mouse_event)
 
     sim = Simulator(grid_array.astype(bool), colors=COLORS)
+    sim.register_arrival_callback(on_robot_arrival)
 
     while True:
         vis = grid_visual(grid_array.copy())
@@ -259,7 +333,20 @@ def main():
                 cv2.circle(vis, (x + cell_size//2, y + cell_size//2), 5, (0, 0, 255), -1)
                 cv2.putText(vis, f"G{agent.id}", (x + 2, y + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,255), 1)
 
-        cv2.imshow("CBS Grid", vis)
+        agent_info_img = draw_agent_info_window(
+            agents,
+            preset_ids=PRESET_IDS,
+            total_height=grid_array.shape[0] * cell_size,
+            selected_robot_id=selected_robot_id,
+            delay_input_mode=delay_input_mode,
+            delay_input_buffer=delay_input_buffer,
+            cell_size=cell_size
+        )
+
+        combined = cv2.hconcat([vis, agent_info_img])
+        cv2.imshow("CBS Grid", combined)
+
+
         
         sim.run_once()
         
@@ -267,12 +354,36 @@ def main():
         key = cv2.waitKey(100)
         if key != -1:
             key_char = chr(key & 0xFF)
-            if key_char.isdigit():
-                selected_robot_id = int(key_char)
-                print(f"로봇 ID {selected_robot_id} 선택됨.")
+            if delay_input_mode:
+                if key_char.isdigit():
+                    delay_input_buffer += key_char
+                elif key == 8:  # Backspace
+                    delay_input_buffer = delay_input_buffer[:-1]
+                elif key == 13 or key == 10:  # Enter
+                    if selected_robot_id is not None and delay_input_buffer.isdigit():
+                        delay_val = int(delay_input_buffer)
+                        existing = next((a for a in agents if a.id == selected_robot_id), None)
+                        if existing:
+                            existing.delay = delay_val
+                        else:
+                            agent = Agent(id=selected_robot_id, start=None, goal=None, delay=delay_val)
+                            agents.append(agent)
+                    delay_input_mode = False
+                    delay_input_buffer = ""
+
+            else:
+                if key_char.isdigit():
+                    selected_robot_id = int(key_char)
+                    if selected_robot_id in PRESET_IDS:
+                        print(f"로봇 ID {selected_robot_id} 선택됨.")
+                elif key == ord('d') and selected_robot_id in PRESET_IDS:
+                    print(f"Delay 입력 모드 진입 (ID {selected_robot_id})")
+                    delay_input_mode = True
+                    delay_input_buffer = ""
+
         if key == ord('q'):
             break
-        elif key == ord('r'):
+        elif key == ord('z'):
             print("Reset all")
             agents.clear()
             paths.clear()
@@ -293,6 +404,16 @@ def main():
         
         elif key == ord('c'):  # 'c' 키로 CBS 재계산
             compute_cbs()
+
+        elif key == ord('x'):
+            selected_robot_id = None
+            delay_input_mode = False
+            delay_input_buffer = ""
+
+        elif key == ord('r'):
+            random_mode_enabled = not random_mode_enabled
+            sim.random_mode_enabled = random_mode_enabled
+
             
             
     cv2.destroyAllWindows()

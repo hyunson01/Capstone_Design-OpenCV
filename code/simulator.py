@@ -13,6 +13,8 @@ class Simulator:
         self.paused = True
         self.robot_info = {}
         self.robot_past_paths = {}
+        self.random_mode_enabled = False
+        self.arrival_callback = None
 
     # 로봇 추가
     def add_robot(self, robot_id, broker, start_pos=(0, 0), direction="north"):
@@ -55,7 +57,7 @@ class Simulator:
                 "south": (0, 1),
                 "west":  (-1, 0)
             }
-            dx, dy = dir_vecs[robot.direction]
+            dx, dy = robot.get_direction()
             length = self.cell_size // 4
             tip = (int(cx + dx * length), int(cy + dy * length))
             left = (int(cx + dy * length // 2), int(cy - dx * length // 2))
@@ -149,6 +151,10 @@ class Simulator:
     #     interp_pos = (1 - progress) * current_pos + progress * next_pos
     #     return interp_pos
     
+    # 도착시 콜백 등록
+    def register_arrival_callback(self, func):
+        self.arrival_callback = func
+
     # 로봇 한 틱 이동
     def tick(self):
         for robot in self.robots.values():
@@ -159,6 +165,15 @@ class Simulator:
                 self.robot_past_paths[robot.robot_id] = []
             if not self.robot_past_paths[robot.robot_id] or self.robot_past_paths[robot.robot_id][-1] != pos:
                 self.robot_past_paths[robot.robot_id].append(pos)
+
+            if getattr(self, "random_mode_enabled", False):
+                info = self.robot_info[robot.robot_id]
+                goal = info.get("goal")
+                path = info.get("path")
+
+                if path and len(path) > 0 and pos == path[-1]:
+                    if self.arrival_callback:
+                        self.arrival_callback(robot.robot_id, pos)
                     
     def get_robot_current_positions(self):
         positions = {}
@@ -171,13 +186,30 @@ class Robot:
     def __init__(self, robot_id, broker, start_pos, direction="north"):
         self.robot_id = robot_id
         self.broker = broker
+        
         self.position = start_pos  # (row, col)
+        
+        # 이동 관련
         self.moving = False         # 현재 1칸 이동 중인지
+            # 이동 보간
         self.start_pos = start_pos  # 보간 시작 좌표
         self.target_pos = start_pos # 보간 목표 좌표
         self.progress = 0.0         # 0.0~1.0 보간 진행도
         self.speed = 0.1            # 1 tick당 이동 비율 (ex. 0.1 → 10 tick 동안 1칸 이동)
+        
+        # 회전 관련
         self.direction = direction  # 초기 방향
+            # 회전 보간
+        self.rotating = False       # 회전 중인지 여부
+        self.rotation_progress = 0.0
+        self.rotation_speed = 1   # 1 tick당 회전 비율 (ex. 0.1 → 10 tick 동안 90도 회전)
+        self.rotation_dir = None      # "left" or "right"
+
+        # 정지 관련
+        self.stopping = False
+        self.stop_progress = 0.0
+        self.stop_duration = 1.0  # 정지 시간 (초)
+
         self.current_command = None
         self.command_queue = []
         self.broker.subscribe(f"robot/{self.robot_id}/move", self.on_receive_command)
@@ -200,17 +232,17 @@ class Robot:
             self.current_command = parsed.pop(0) if parsed else None
             self.command_queue = parsed
 
-    def execute_command(self, command):
-        if command == "forward":
-            self.move_forward()
-        elif command == "left":
-            self.turn_left()
-        elif command == "right":
-            self.turn_right()
-        elif command == "stop":
-            print(f"[Robot {self.robot_id}] 정지.")
-        else:
-            print(f"[Robot {self.robot_id}] 알 수 없는 명령: {command}")
+    # def execute_command(self, command):
+    #     if command == "forward":
+    #         self.move_forward()
+    #     elif command == "left":
+    #         self.turn_left()
+    #     elif command == "right":
+    #         self.turn_right()
+    #     elif command == "stop":
+    #         print(f"[Robot {self.robot_id}] 정지.")
+    #     else:
+    #         print(f"[Robot {self.robot_id}] 알 수 없는 명령: {command}")
             
     def parse_compressed_command(self, compressed_command):
         result = []
@@ -245,34 +277,52 @@ class Robot:
         # print(f"[Robot {self.robot_id}] 앞으로 이동 준비: {self.start_pos} -> {self.target_pos}")
 
 
-    def turn_left(self):
-        directions = ["north", "west", "south", "east"]
-        idx = directions.index(self.direction)
-        self.direction = directions[(idx + 1) % 4]
-        # print(f"[Robot {self.robot_id}] 왼쪽 회전 → 방향: {self.direction}")
+    def turn(self, direction):  # direction: 'left' or 'right'
+        if not self.rotating:
+            self.rotating = True
+            self.rotation_progress = 0.0
+            self.rotation_dir = direction
 
-    def turn_right(self):
-        directions = ["north", "east", "south", "west"]
-        idx = directions.index(self.direction)
-        self.direction = directions[(idx + 1) % 4]
-        # print(f"[Robot {self.robot_id}] 오른쪽 회전 → 방향: {self.direction}")
         
     def tick(self):
+        if self.stopping:
+            self.stop_progress += self.speed
+            if self.stop_progress >= 1.0:
+                self.stopping = False
+                self.stop_progress = 0.0
+            return
+
         if self.moving:
             self.progress += self.speed
             if self.progress >= 1.0:
                 self.progress = 1.0
                 self.position = self.target_pos
                 self.moving = False
+
+        elif self.rotating:
+            self.rotation_progress += self.rotation_speed
+            if self.rotation_progress >= 1.0:
+                self.rotation_progress = 1.0
+                self.rotating = False
+
+                # 회전 완료 → 방향 갱신
+                directions = ["north", "east", "south", "west"]
+                idx = directions.index(self.direction)
+                if self.rotation_dir == "left":
+                    self.direction = directions[(idx - 1) % 4]
+                elif self.rotation_dir == "right":
+                    self.direction = directions[(idx + 1) % 4]
+                self.rotation_dir = None
+
         else:
             if self.current_command is None and self.command_queue:
                 self.current_command = self.command_queue.pop(0)
-
             if self.current_command:
                 self.execute_compressed_command(self.current_command)
                 self.current_command = None
 
-    
+
+    # 로봇 위치 반환
     def get_position(self):
         if self.moving:
             current = np.array(self.start_pos)
@@ -280,17 +330,49 @@ class Robot:
             return (1 - self.progress) * current + self.progress * target
         else:
             return self.position
+        
+    # 로봇 방향 반환
+    def get_direction(self):
+        dir_vecs = {
+            "north": (0, -1),
+            "east":  (1, 0),
+            "south": (0, 1),
+            "west":  (-1, 0)
+        }
+        directions = ["north", "east", "south", "west"]
+        idx = directions.index(self.direction)
+
+        # 회전 중이면 다음 방향으로 보간
+        if self.rotating and self.rotation_dir:
+            if self.rotation_dir == "left":
+                target_idx = (idx - 1) % 4
+            else:  # "right"
+                target_idx = (idx + 1) % 4
+
+            cur_vec = np.array(dir_vecs[directions[idx]])
+            next_vec = np.array(dir_vecs[directions[target_idx]])
+            t = self.rotation_progress  # 0~1
+
+            # 벡터를 선형 보간 (단순하고 충분)
+            vec = (1 - t) * cur_vec + t * next_vec
+            norm = np.linalg.norm(vec)
+            return vec / norm if norm != 0 else vec
+
+        else:
+            return np.array(dir_vecs[self.direction])
+
 
 
     def execute_compressed_command(self, code):
         if code == 'f':
             self.move_forward()
         elif code == 'l':
-            self.turn_left()
+            self.turn("left")
         elif code == 'r':
-            self.turn_right()
+            self.turn("right")
         elif code == 's':
-            print(f"[Robot {self.robot_id}] 정지.")
+            self.stopping = True
+            self.stop_progress = 0.0
         else:
             print(f"[Robot {self.robot_id}] 알 수 없는 명령어: {code}")
             

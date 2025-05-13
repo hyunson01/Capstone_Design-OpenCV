@@ -6,6 +6,12 @@ MQTT_SERVER = "192.168.159.132"
 MQTT_PORT = 1883
 TRANSFER_TOPIC = "command/transfer"
 
+"""
+수정 리스트
+46줄 commands.append("S")  # ✅ 정지 명령 추가        << !수정됨!
+"""
+
+
 # 명령세트를 체계적으로 관리하기 위한 클래스 정의
 class CommandSet:
     def __init__(self, robot_id, path, initial_dir="north"):
@@ -37,6 +43,7 @@ class CommandSet:
             
             #!!! 일단 제자리 이동은 생략
             if pos1 == pos2:
+                commands.append("S")  # ✅ 정지 명령 추가        << !수정됨!
                 continue  # 제자리 이동 생략
 
             # 방향 계산
