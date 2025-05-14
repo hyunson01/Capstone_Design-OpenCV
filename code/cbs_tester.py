@@ -186,20 +186,31 @@ def compute_cbs():
 
     grid_array = load_grid(grid_row, grid_col)
     get_start_from_robot()
+    if random_mode_enabled:
+        assigned = False
+        for agent in agents:
+            if agent.start and agent.goal is None:
+                pos = agent.start
+                empty_cells = [(r, c) for r in range(grid_array.shape[0])
+                                            for c in range(grid_array.shape[1])
+                                            if grid_array[r, c] == 0 and (r, c) != pos]
+                if empty_cells:
+                    agent.goal = random.choice(empty_cells)
+                    assigned = True
 
     if pathfinder is None:
         pathfinder = PathFinder(grid_array)
 
-    # CBS 계산 전 모든 delay를 1회용으로 처리
-    for agent in agents:
-        if agent.start is not None and agent.goal is not None:
-            if agent.delay > 0:
-                print(f"[딜레이 적용] Agent {agent.id} → delay {agent.delay} 적용 후 제거")
-                delay = agent.delay
-                agent.delay = 0  # 딜레이는 1회만 적용되도록 초기화
-            else:
-                delay = 0
-            agent._applied_delay = delay  # 내부 추적용, 없어도 됨
+    # # CBS 계산 전 모든 delay를 1회용으로 처리
+    # for agent in agents:
+    #     if agent.start is not None and agent.goal is not None:
+    #         if agent.delay > 0:
+    #             print(f"[딜레이 적용] Agent {agent.id} → delay {agent.delay} 적용 후 제거")
+    #             delay = agent.delay
+    #             agent.delay = 0  # 딜레이는 1회만 적용되도록 초기화
+    #         else:
+    #             delay = 0
+    #         agent._applied_delay = delay  # 내부 추적용, 없어도 됨
 
     new_agents = pathfinder.compute_paths(agents)
     new_paths = [agent.get_final_path() for agent in new_agents]
@@ -212,6 +223,9 @@ def compute_cbs():
     paths.extend(new_paths)
 
     print("Paths updated via PathFinder.")
+    
+    for agent in agents:
+        agent.delay = 0
 
     # 로봇 명령 전송
     command_sets = []
@@ -268,16 +282,16 @@ def draw_paths(vis_img, paths):
             cv2.rectangle(overlay, (x, y), (x + cell_size, y + cell_size), color, -1)
             cv2.addWeighted(overlay, 0.3, vis_img, 0.7, 0, vis_img)
     
-    # 2. 추가: sim.robot_past_paths에 저장된 지나간 경로도 색칠
-    if sim:
-        for robot_id, past_path in sim.robot_past_paths.items():
-            color = COLORS[robot_id % len(COLORS)]
-            for pos in past_path:
-                r, c = pos
-                x, y = c * cell_size, r * cell_size
-                overlay = vis_img.copy()
-                cv2.rectangle(overlay, (x, y), (x + cell_size, y + cell_size), color, -1)
-                cv2.addWeighted(overlay, 0.3, vis_img, 0.7, 0, vis_img)
+    # # 2. 추가: sim.robot_past_paths에 저장된 지나간 경로도 색칠
+    # if sim:
+    #     for robot_id, past_path in sim.robot_past_paths.items():
+    #         color = COLORS[robot_id % len(COLORS)]
+    #         for pos in past_path:
+    #             r, c = pos
+    #             x, y = c * cell_size, r * cell_size
+    #             overlay = vis_img.copy()
+    #             cv2.rectangle(overlay, (x, y), (x + cell_size, y + cell_size), color, -1)
+    #             cv2.addWeighted(overlay, 0.3, vis_img, 0.7, 0, vis_img)
 
 # 로봇 도착 시 재계산
 def on_robot_arrival(robot_id, pos):
@@ -345,8 +359,6 @@ def main():
 
         combined = cv2.hconcat([vis, agent_info_img])
         cv2.imshow("CBS Grid", combined)
-
-
         
         sim.run_once()
         
