@@ -5,7 +5,7 @@ import os
 
 # 체커보드 크기 설정 (내부 코너 개수)
 CHECKERBOARD = (10,7)  # 내부 코너 개수 (체커보드 패턴에 맞게 조정)
-square_size = 0.024  # 체커보드 칸 크기 (미터 단위, 실제 크기에 맞춰 조정)
+square_size = 0.025  # 체커보드 칸 크기 (미터 단위, 실제 크기에 맞춰 조정)
 
 # 체커보드 찾기 알고리즘의 종료 기준 설정
 criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
@@ -20,7 +20,7 @@ imgpoints = []  # 2D 이미지 좌표
 
 # 현재 실행 중인 Python 파일의 경로 찾기
 script_dir = os.path.dirname(os.path.abspath(__file__))
-images_path = os.path.join(script_dir, 'C:\img\calibration', '*.jpg')
+images_path = r"C:\img\calibration\*.jpg"
 images = glob.glob(images_path)
 
 # 이미지가 없을 경우 프로그램 종료
@@ -71,8 +71,15 @@ print("✅ Camera Matrix:\n", cameraMatrix)
 print("✅ Distortion Coefficients:\n", distCoeffs)
 
 # 📌 보정값 저장
-print("Current working directory:", os.getcwd())  # 현재 작업 폴더 출력
-np.save("C:/img/calibration/camera_matrix.npy", cameraMatrix)
-np.save("C:/img/calibration/dist_coeffs.npy", distCoeffs)
+# 이미지들이 있는 폴더 경로 가져오기
+image_folder = os.path.dirname(images[0])  # 첫 번째 이미지 기준으로 경로 추출
 
-print("✅ Calibration data saved as 'camera_matrix.npy' and 'dist_coeffs.npy'")
+# 저장 경로 구성
+camera_matrix_path = os.path.join(image_folder, "camera_matrix.npy")
+dist_coeffs_path = os.path.join(image_folder, "dist_coeffs.npy")
+
+# 저장
+np.save(camera_matrix_path, cameraMatrix)
+np.save(dist_coeffs_path, distCoeffs)
+
+print(f"✅ Calibration data saved to:\n{camera_matrix_path}\n{dist_coeffs_path}")
