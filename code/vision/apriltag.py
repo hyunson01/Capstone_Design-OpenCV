@@ -14,7 +14,7 @@ class AprilTagDetector:
     def tag_detect(self, gray):
         return self.detector.detect(gray)
 
-    def tags_process(self,tags, object_points, frame_count, board_origin_tvec, cm_per_px, frame, new_camera_matrix, dist_coeffs):
+    def tags_process(self,tags, object_points, frame_count, board_origin_tvec, cm_per_px, frame, new_camera_matrix, dist_coeffs, visualize=True):
         global tag_info
         
         new_detected_ids = set()
@@ -45,12 +45,12 @@ class AprilTagDetector:
                 "frame_count": frame_count
             }
             new_detected_ids.add(tag_id)
+            if visualize:
+                imgpts, _ = cv2.projectPoints(object_points, rvec, tvec, new_camera_matrix, dist_coeffs)
+                imgpts = np.int32(imgpts).reshape(-1, 2)
 
-            imgpts, _ = cv2.projectPoints(object_points, rvec, tvec, new_camera_matrix, dist_coeffs)
-            imgpts = np.int32(imgpts).reshape(-1, 2)
-
-            cv2.drawContours(frame, [imgpts[:4]], -1, (0, 255, 0), 2)
-            cv2.putText(frame, f"ID: {tag_id}", (center[0], center[1] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 3)
+                cv2.drawContours(frame, [imgpts[:4]], -1, (0, 255, 0), 2)
+                cv2.putText(frame, f"ID: {tag_id}", (center[0], center[1] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 3)
 
         self.detected_ids = new_detected_ids
 

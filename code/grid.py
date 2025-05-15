@@ -5,7 +5,7 @@ import json
 from visual import mouse_callback, grid_visual
 from config import grid_row, grid_col
 
-GRID_FOLDER = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+GRID_FOLDER = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "grid"))
 
 # 격자 배열을 저장할 JSON 파일 경로
 def get_grid_filename(grid_row, grid_col):

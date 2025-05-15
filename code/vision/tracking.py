@@ -67,3 +67,5 @@ class TrackingManager:
 
             data["smoothed_coordinates"] = (avg_x, avg_y)
             data["velocity"] = (vx, vy)
+
+            

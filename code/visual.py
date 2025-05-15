@@ -10,7 +10,29 @@ def grid_tag_visual(grid_visual, tag_info):
     pass
 
 def info_tag(frame, tag_info):
-    pass
+    """
+    화면 좌측 상단에 태그별 속도/방향 정보를 표시
+    """
+    base_x = 10
+    base_y = 30
+    line_height = 20
+
+    for idx, (tag_id, data) in enumerate(sorted(tag_info.items())):
+        if data["status"] != "On":
+            continue
+        v = data.get("velocity", (0, 0))
+        vx, vy = v
+        text = f"ID {tag_id}: V=({vx:.2f}, {vy:.2f})"
+        pos = (base_x, base_y + idx * line_height)
+        cv2.putText(frame, text, pos, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+        
+        smoothed = data.get("smoothed_coordinates")
+        if smoothed:
+            sx, sy = int(smoothed[0]), int(smoothed[1])
+            ex, ey = int(sx + vx * 50), int(sy + vy * 50)
+            cv2.arrowedLine(frame, (sx, sy), (ex, ey), (255, 0, 0), 2)
+
+
 
 def trackbar(val):
     pass

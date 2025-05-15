@@ -17,7 +17,6 @@ from vision.tracking import TrackingManager
 from grid import load_grid
 from visual import grid_visual, grid_tag_visual, info_tag, slider_create, cell_size
 from config import tag_info, object_points, camera_matrix, dist_coeffs, COLORS, grid_row, grid_col
-from movement.movement_generator import generate_movement_commands
 from cbs.pathfinder import PathFinder
 from commandSendTest2 import CommandSet
 from cbs.agent import Agent
@@ -30,6 +29,10 @@ paths = []
 manager = None
 pathfinder = None
 grid_array = None
+
+last_valid_rect = None       # 최근에 인식된 보드
+locked_board_rect = None     # 고정된 보드 (n 키로 설정됨)
+visualize_tags = True
 
 # 사용할 ID 목록
 PRESET_IDS = [1,2,3,4,5,6,7,8,9,10,11,12]  # 예시: 1~12까지의 ID 사용
@@ -227,7 +230,7 @@ def apply_start_delays(paths, starts, delays):
     return delayed_paths
 
 def main():
-    global agents, paths, manager
+    global agents, paths, manager, locked_board_rect, last_valid_rect, visualize_tags
     video_path = r"C:/img/test1.mp4"
     cap, fps = camera_open()
     frame_count = 0
@@ -259,10 +262,18 @@ def main():
         if frame is None:
             continue
 
-        largest_rect = board_detect(gray)
+        # 보드 인식 로직
+        if locked_board_rect is not None:
+            largest_rect = locked_board_rect  # 고정된 보드를 사용
+        else:
+            detected = board_detect(gray)
+            if detected is not None:
+                last_valid_rect = detected
+            largest_rect = last_valid_rect  # 실패 시 이전 인식값 사용
 
         if largest_rect is not None:
-            board_draw(frame, largest_rect)
+            if visualize_tags:
+                board_draw(frame, largest_rect)
             rect, board_width_px, board_height_px = board_pts(largest_rect)
             warped, warped_board_width_px, warped_board_height_px, warped_resized = perspective_transform(frame, rect, board_width_px, board_height_px)
             board_origin_tvec = board_origin(frame, rect[0])
@@ -270,14 +281,16 @@ def main():
             cm_per_pixel = cm_per_px(warped_board_width_px, warped_board_height_px)
             
             tags = tag_detector.tag_detect(gray)
-            tag_detector.tags_process(tags, object_points, frame_count, board_origin_tvec, cm_per_pixel, frame, camera_matrix, dist_coeffs)
+            tag_detector.tags_process(tags, object_points, frame_count, board_origin_tvec, cm_per_pixel, frame, camera_matrix, dist_coeffs, visualize_tags)
             tracking_manager.update_all(tag_info, elapsed_time)
+
             
             update_agents_from_tags(tag_info) 
-
-            info_tag(frame, tag_info)
             
-            cv2.imshow("Warped Perspective", warped_resized)
+            if visualize_tags:
+                info_tag(frame, tag_info)
+            
+            # cv2.imshow("Warped Perspective", warped_resized)
 
         for agent in agents:
             if agent.start:
@@ -323,6 +336,22 @@ def main():
                 compute_cbs()
             else:
                 print("⚠️  start 또는 goal이 비어 있는 에이전트가 있습니다.")
+
+        elif key == ord('n'):
+            if last_valid_rect is not None:
+                locked_board_rect = last_valid_rect.copy()
+                print("✅ 현재 보드를 고정했습니다.")
+            else:
+                print("⚠️ 현재 인식된 보드가 없습니다. 먼저 보드를 인식하십시오.")
+
+        elif key == ord('b'):
+            locked_board_rect = None
+            print("🔄 고정된 보드를 해제하고 탐지 모드로 전환합니다.")
+
+        elif key == ord('v'):
+            visualize_tags = not visualize_tags
+            print(f"시각화 모드: {'ON' if visualize_tags else 'OFF'}")
+
 
     cap.release()
     cv2.destroyAllWindows()
