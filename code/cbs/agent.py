@@ -6,6 +6,7 @@ class Agent:
         self.delay = delay
         self.path = []
         self._final_path = None
+        self.direction = None
 
     def set_path(self, path):
         self.path = path

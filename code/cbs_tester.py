@@ -15,7 +15,7 @@ from cbs.agent import Agent
 from visualize import Animation
 from simulator import Simulator
 from fake_mqtt import FakeMQTTBroker
-from commandSendTest2 import CommandSet
+from commandSendTest3 import CommandSet
 from cbs.pathfinder import PathFinder
 from config import COLORS, grid_row, grid_col, cell_size
 import json

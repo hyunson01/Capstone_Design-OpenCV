@@ -18,10 +18,11 @@ from grid import load_grid
 from visual import grid_visual, grid_tag_visual, info_tag, slider_create, cell_size
 from config import tag_info, object_points, camera_matrix, dist_coeffs, COLORS, grid_row, grid_col
 from cbs.pathfinder import PathFinder
-from commandSendTest2 import CommandSet
+from commandSendTest3 import CommandSet
 from cbs.agent import Agent
 from vision.apriltag import transform_coordinates 
 from visualize import Animation
+from DirectionCheck import compute_and_publish_errors
 
 # 전역 변수
 agents = []
@@ -194,7 +195,8 @@ def compute_cbs():
     print("Paths updated via PathFinder.")
 
     # 로봇 명령 전송
-    command_sets = [CommandSet(str(agent.id), agent.get_final_path()) for agent in solved_agents]
+    command_sets = [CommandSet(str(agent.id), agent.get_final_path(), initial_dir=getattr(agent, "direction", "north"))
+                    for agent in solved_agents]
 
 # 전송할 JSON 문자열을 미리 출력
     try:
@@ -252,7 +254,7 @@ def main():
         fps = 1 / (current_time - prev_time)
         prev_time = current_time
 
-        print(f"Current FPS: {fps:.2f}")
+        # print(f"Current FPS: {fps:.2f}")
         frame_count += 1
         elapsed_time = frame_count / fps
         frame, gray = frame_process(cap, camera_matrix, dist_coeffs)
@@ -351,6 +353,10 @@ def main():
         elif key == ord('v'):
             visualize_tags = not visualize_tags
             print(f"시각화 모드: {'ON' if visualize_tags else 'OFF'}")
+
+        elif key == ord('p'):
+            compute_and_publish_errors(tag_info, agents)
+
 
 
     cap.release()
