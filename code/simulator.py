@@ -202,7 +202,7 @@ class Robot:
             # 회전 보간
         self.rotating = False       # 회전 중인지 여부
         self.rotation_progress = 0.0
-        self.rotation_speed = 1   # 1 tick당 회전 비율 (ex. 0.1 → 10 tick 동안 90도 회전)
+        self.rotation_speed = 1.0   # 1 tick당 회전 비율 (ex. 0.1 → 10 tick 동안 90도 회전)
         self.rotation_dir = None      # "left" or "right"
 
         # 정지 관련
@@ -221,16 +221,14 @@ class Robot:
         self.current_index = 0
         self.progress = 0.0
 
-    def on_receive_command(self, compressed_command):
-        parsed = self.parse_compressed_command(compressed_command)
+    def on_receive_command(self, command_list):
         if self.moving or self.current_command is not None:
             print(f"[Robot {self.robot_id}] 이동 중 → 기존 명령 유지, queue 덮어쓰기")
-            self.command_queue = parsed  # 기존 대기열 교체 (덮어쓰기)
+            self.command_queue = command_list  # ✅ 리스트 그대로 받음
         else:
-            # 아무것도 진행 중이 아니면 바로 시작
             print(f"[Robot {self.robot_id}] 정지 상태 → 명령 즉시 실행")
-            self.current_command = parsed.pop(0) if parsed else None
-            self.command_queue = parsed
+            self.current_command = command_list.pop(0) if command_list else None
+            self.command_queue = command_list
 
     # def execute_command(self, command):
     #     if command == "forward":
@@ -318,7 +316,7 @@ class Robot:
             if self.current_command is None and self.command_queue:
                 self.current_command = self.command_queue.pop(0)
             if self.current_command:
-                self.execute_compressed_command(self.current_command)
+                self.execute_command(self.current_command)
                 self.current_command = None
 
 
@@ -363,16 +361,32 @@ class Robot:
 
 
 
-    def execute_compressed_command(self, code):
-        if code == 'f':
-            self.move_forward()
-        elif code == 'l':
-            self.turn("left")
-        elif code == 'r':
-            self.turn("right")
-        elif code == 's':
-            self.stopping = True
-            self.stop_progress = 0.0
+    def execute_command(self, command):
+        if command.startswith("D"):
+            dist = int(command[1:])
+            if dist == 0:
+                self.stopping = True
+                self.stop_progress = 0.0
+            else:
+                steps = dist // 10
+                if steps > 1:
+                    # 앞으로 추가할 명령은 큐에 역순으로 삽입해야 FIFO 순서 유지됨
+                    for _ in range(steps - 1):
+                        self.command_queue.insert(0, "D10")
+                self.move_forward()
+
+        elif command.startswith("R"):
+            angle = int(command[1:])
+            if angle == 90:
+                self.turn("right")
+            elif angle == -90:
+                self.turn("left")
+            elif abs(angle) == 180:
+                self.turn("right")
+                self.command_queue.insert(0, "R90")  # R180은 R90 x2로 분해
+            else:
+                print(f"[Robot {self.robot_id}] 알 수 없는 회전 각도: {angle}")
+
         else:
-            print(f"[Robot {self.robot_id}] 알 수 없는 명령어: {code}")
-            
+            print(f"[Robot {self.robot_id}] 알 수 없는 명령어: {command}")
+

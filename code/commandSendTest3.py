@@ -32,24 +32,33 @@ class CommandSet:
         while i < N - 1:
             pos1 = self.path[i]
             pos2 = self.path[i + 1]
+
+            # 먼저 정지 판단
+            if pos1 == pos2:
+                commands.append("D0")
+                i += 1
+                continue
+
             # 방향 계산
             next_dir = self.direction_between(pos1, pos2)
-
-            # 방향 전환 명령
             if current_dir != next_dir:
                 commands.append(self.turn_command(current_dir, next_dir))
                 current_dir = next_dir
 
-            # 같은 방향으로 연속된 구간 합산
+            # 같은 방향 연속 구간 처리
             total_steps = 0
-            # 다음 경로가 같은 방향인 동안 반복
-            while i < N - 1 and self.direction_between(self.path[i], self.path[i+1]) == current_dir:
-                # 한 칸 거리는 1 그리드
-                total_steps += self.distance_between(self.path[i], self.path[i+1])
+            while i < N - 1:
+                a, b = self.path[i], self.path[i + 1]
+
+                if a == b:  # ✅ 정지 좌표는 끊고 나감
+                    break
+
+                if self.direction_between(a, b) != current_dir:
+                    break
+
+                total_steps += self.distance_between(a, b)
                 i += 1
 
-            # 예) total_steps == 3 이면 D3, 
-            # 실제 cm 단위로 보내야 하면 f"D{total_steps * 10}" 처럼 곱해 주세요
             commands.append(f"D{total_steps}")
 
         return commands
@@ -111,21 +120,23 @@ class CommandSet:
     def send_command_sets(cls, command_sets):
         """
         CommandSet 객체 리스트를 받아 MQTT를 통해 전송합니다.
+        실제 로봇과 연결되지 않았을 경우, 빠르게 실패하고 넘어감.
         """
         try:
             client = mqtt.Client()
-            client.connect(MQTT_SERVER, MQTT_PORT, 60)
+            client.connect(MQTT_SERVER, MQTT_PORT, 1)  # timeout 1초 이내로 제한
 
             message = {"commands": [cs.to_dict() for cs in command_sets]}
             payload = json.dumps(message)
 
             print("전송 모듈 명령 세트:", payload)
             client.publish(TRANSFER_TOPIC, payload)
-            time.sleep(1)
-            client.disconnect()
+            client.disconnect()  # ✅ time.sleep(1) 제거됨
 
         except Exception as e:
-            print(f"로봇 통신 실패: {e}")
+            print(f"(경고) 로봇 통신 실패: {e}")
+        
+
 
 
 

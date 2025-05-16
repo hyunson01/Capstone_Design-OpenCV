@@ -256,11 +256,11 @@ def compute_cbs():
     except Exception as e:
         print(f"명령 세트 변환 중 오류 발생: {e}")
 
-    # 실제 전송 시도
-    try:
-        CommandSet.send_command_sets(command_sets)
-    except Exception as e:
-        print(f"명령 전송 중 오류 발생: {e}")
+    # # 실제 전송 시도
+    # try:
+    #     CommandSet.send_command_sets(command_sets)
+    # except Exception as e:
+    #     print(f"명령 전송 중 오류 발생: {e}")
 
     broker.send_command_sets(command_sets)
         
