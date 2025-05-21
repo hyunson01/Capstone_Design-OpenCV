@@ -1,7 +1,10 @@
 # simulator.py
 import cv2
 import numpy as np
+import time
 from fake_mqtt import FakeMQTTBroker
+import threading
+from config import MOTION_DURATIONS
 
 class Simulator:
     def __init__(self, map_array, colors, cell_size=50):
@@ -65,92 +68,32 @@ class Simulator:
             triangle_cnt = np.array([tip, left, right], np.int32)
             cv2.fillPoly(vis, [triangle_cnt], (0, 0, 0))  # 검은색 삼각형
 
-                   
-    # # 로봇 출발지, 도착지 그리기
-    # def draw_start_goal(self, vis):
-    #     overlay = vis.copy()
-    #     for robot_id, info in self.robot_info.items():
-    #         start = info.get('start')
-    #         goal = info.get('goal')
-    #         color = self.colors[robot_id % len(self.colors)]
-            
-    #         # 🟪 출발지 그리기 (네모)
-    #         if start:
-    #             top_left = (start[1] * self.cell_size + self.cell_size // 4,
-    #                         start[0] * self.cell_size + self.cell_size // 4)
-    #             bottom_right = (start[1] * self.cell_size + self.cell_size * 3 // 4,
-    #                             start[0] * self.cell_size + self.cell_size * 3 // 4)
-    #             cv2.rectangle(overlay, top_left, bottom_right, color, -1)
-
-    #         # 🔺 도착지 그리기 (삼각형)
-    #         if goal:
-    #             center_x = goal[1] * self.cell_size + self.cell_size // 2
-    #             center_y = goal[0] * self.cell_size + self.cell_size // 2
-    #             pts = np.array([
-    #                 (center_x, center_y - self.cell_size // 4),
-    #                 (center_x - self.cell_size // 4, center_y + self.cell_size // 4),
-    #                 (center_x + self.cell_size // 4, center_y + self.cell_size // 4)
-    #             ], np.int32)
-    #             cv2.fillPoly(overlay, [pts], color)
-                
-    #     # ✅ 반투명으로 합치기
-    #     cv2.addWeighted(overlay, 0.3, vis, 0.7, 0, vis)
-       
-    # 로봇 경로 그리기
-    # def draw_paths(self, vis):
-    #     overlay = vis.copy()
-    #     for robot_id, info in self.robot_info.items():
-    #         color = self.colors[robot_id % len(self.colors)]
-
-    #         past_path = self.robot_past_paths.get(robot_id, [])
-    #         current_path = info['path'] if info['path'] else []
-
-    #         # 🔥 경로 연결할 리스트
-    #         full_path = []
-
-    #         if past_path:
-    #             full_path.extend(past_path)
-
-    #         if current_path:
-    #             # 🔥 지나온 마지막 위치와 새로운 경로 첫 위치가 다르면, 연결 끊기
-    #             if not past_path or past_path[-1] == current_path[0]:
-    #                 full_path.extend(current_path)
-    #             else:
-    #                 print(f"Robot {robot_id}: Path discontinuity detected. Not connecting past and current paths.")
-    #                 # 지나온 경로 그린 다음, 새 경로는 따로 그린다.
-
-    #         # 🔥 경로 그리기
-    #         for i in range(1, len(full_path)):
-    #             p1 = (full_path[i-1][1] * self.cell_size + self.cell_size // 2, full_path[i-1][0] * self.cell_size + self.cell_size // 2)
-    #             p2 = (full_path[i][1] * self.cell_size + self.cell_size // 2, full_path[i][0] * self.cell_size + self.cell_size // 2)
-    #             cv2.line(overlay, p1, p2, color, thickness=3)
-
-    #     cv2.addWeighted(overlay, 0.3, vis, 0.7, 0, vis)
-
     # 한 프레임 그리기
-    def run_once(self):
+    def draw_frame(self):
         self.vis = self.create_grid()  # 배경(맵) 먼저 그림
-        
-        # self.draw_paths(self.vis)          # 경로 먼저 그리기
-        # self.draw_start_goal(self.vis)      # 출발지, 도착지 그리기
         self.draw_robots(self.vis)                  # 로봇(보간 이동) 그리기
-        
-        if not self.paused:
-            self.tick()  # 로봇 이동 처리 및 위치 기록
-        
         cv2.imshow("Simulator", self.vis)
-    
-    # 로봇 경로 보간
-    # def get_interpolated_position(self):
-    #     if not self.path or self.current_index >= len(self.path) - 1:
-    #         return self.path[-1]
 
-    #     current_pos = np.array(self.path[self.current_index])
-    #     next_pos = np.array(self.path[self.current_index + 1])
-    #     progress = self.substep / self.substeps_per_move
-    #     interp_pos = (1 - progress) * current_pos + progress * next_pos
-    #     return interp_pos
-    
+    def run_simulator(self, tick_interval=0.1):
+        def loop():
+            self.running = True
+            last_tick = time.time()
+
+            while self.running:
+                now = time.time()
+                if now - last_tick >= tick_interval:
+                    self.tick()
+                    last_tick = now
+                time.sleep(0.001)  # CPU 사용량 방지용 짧은 대기
+
+        self.thread = threading.Thread(target=loop, daemon=True)
+        self.thread.start()
+
+    def stop(self):
+        self.running = False
+        if hasattr(self, 'thread'):
+            self.thread.join(timeout=1.0)
+
     # 도착시 콜백 등록
     def register_arrival_callback(self, func):
         self.arrival_callback = func
@@ -194,21 +137,21 @@ class Robot:
             # 이동 보간
         self.start_pos = start_pos  # 보간 시작 좌표
         self.target_pos = start_pos # 보간 목표 좌표
-        self.progress = 0.0         # 0.0~1.0 보간 진행도
-        self.speed = 0.1            # 1 tick당 이동 비율 (ex. 0.1 → 10 tick 동안 1칸 이동)
-        
+        self.move_progress = 0.0         # 0.0~1.0 보간 진행도
+        self.move_duration = MOTION_DURATIONS["Move"]           # 이동하는데 소요되는 초
+    
         # 회전 관련
         self.direction = direction  # 초기 방향
             # 회전 보간
         self.rotating = False       # 회전 중인지 여부
         self.rotation_progress = 0.0
-        self.rotation_speed = 0.1   # 1 tick당 회전 비율 (ex. 0.1 → 10 tick 동안 90도 회전)
+        self.rotation_duration = MOTION_DURATIONS["Rotate"]   # 회전하는데 소요되는 초
         self.rotation_dir = None      # "left" or "right"
 
         # 정지 관련
         self.stopping = False
         self.stop_progress = 0.0
-        self.stop_duration = 1.0  # 정지 시간 (초)
+        self.stop_duration = MOTION_DURATIONS["Stop"]  # 정지 시간 (초)
 
         self.current_command = None
         self.command_queue = []
@@ -284,22 +227,22 @@ class Robot:
         
     def tick(self):
         if self.stopping:
-            self.stop_progress += self.speed
-            if self.stop_progress >= 1.0:
+            self.stop_progress += self.tick_interval
+            if self.stop_progress >= self.stop_duration:
                 self.stopping = False
                 self.stop_progress = 0.0
             return
 
         if self.moving:
-            self.progress += self.speed
-            if self.progress >= 1.0:
-                self.progress = 1.0
+            self.move_progress += self.tick_interval
+            if self.move_progress >= self.move_duration:
+                self.move_progress = 1.0
                 self.position = self.target_pos
                 self.moving = False
 
         elif self.rotating:
-            self.rotation_progress += self.rotation_speed
-            if self.rotation_progress >= 1.0:
+            self.rotation_progress += self.tick_interval
+            if self.rotation_progress >= self.rotation_duration:
                 self.rotation_progress = 1.0
                 self.rotating = False
 
@@ -325,9 +268,11 @@ class Robot:
         if self.moving:
             current = np.array(self.start_pos)
             target = np.array(self.target_pos)
-            return (1 - self.progress) * current + self.progress * target
+            ratio = min(self.progress / self.move_duration, 1.0)  # 비율 보정
+            return (1 - ratio) * current + ratio * target
         else:
             return self.position
+
         
     # 로봇 방향 반환
     def get_direction(self):
@@ -352,6 +297,7 @@ class Robot:
             t = self.rotation_progress  # 0~1
 
             # 벡터를 선형 보간 (단순하고 충분)
+            t = min(self.rotation_progress / self.rotation_duration, 1.0)
             vec = (1 - t) * cur_vec + t * next_vec
             norm = np.linalg.norm(vec)
             return vec / norm if norm != 0 else vec

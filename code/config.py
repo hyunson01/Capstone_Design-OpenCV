@@ -21,8 +21,8 @@ camera_matrix = np.load(camera_matrix_path)
 dist_coeffs = np.load(dist_coeffs_path)
 
 # 보드 크기 (cm 단위)
-board_width_cm = 60
-board_height_cm = 60
+board_width_cm = 120
+board_height_cm = 120
 
 # 3D 상자 정의
 tag_size = 0.05  # 태그 크기 (단위: 미터)
@@ -57,3 +57,11 @@ COLORS = [
     (64, 0, 64), (0, 64, 64), (192, 0, 0), (0, 192, 0),
     (0, 0, 192), (192, 192, 0), (192, 0, 192), (0, 192, 192)
 ]
+
+
+# 명령 수행 시간
+MOTION_DURATIONS = {
+    "Move": 1.0,     # 전진
+    "Stop": 1.0,      # 대기
+    "Rotate": 1.0,     # 우회전
+}
