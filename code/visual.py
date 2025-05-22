@@ -24,13 +24,13 @@ def info_tag(frame, tag_info):
         vx, vy = v
         text = f"ID {tag_id}: V=({vx:.2f}, {vy:.2f})"
         pos = (base_x, base_y + idx * line_height)
-        cv2.putText(frame, text, pos, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+        # cv2.putText(frame, text, pos, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
         
         smoothed = data.get("smoothed_coordinates")
         if smoothed:
             sx, sy = int(smoothed[0]), int(smoothed[1])
             ex, ey = int(sx + vx * 50), int(sy + vy * 50)
-            cv2.arrowedLine(frame, (sx, sy), (ex, ey), (255, 0, 0), 2)
+            # cv2.arrowedLine(frame, (sx, sy), (ex, ey), (255, 0, 0), 2)
 
 
 

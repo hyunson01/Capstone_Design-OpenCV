@@ -48,7 +48,7 @@ def mouse_event(event, x, y, flags, param):
     global agents, paths, pathfinder
 
     row, col = y // cell_size, x // cell_size
-    if not (0 <= row < 12 and 0 <= col < 12):
+    if not (0 <= row < grid_row and 0 <= col < grid_col):
         return
 
     updated = False                 # ← 변경 여부 플래그
@@ -162,7 +162,6 @@ def update_agents_from_tags(tag_info):
             agents.append(
                 Agent(id=tag_id, start=start_cell, goal=None, delay=0)
             )
-
 
 #CBS 계산
 def compute_cbs():
@@ -279,6 +278,7 @@ def main():
             rect, board_width_px, board_height_px = board_pts(largest_rect)
             warped, warped_board_width_px, warped_board_height_px, warped_resized = perspective_transform(frame, rect, board_width_px, board_height_px)
             board_origin_tvec = board_origin(frame, rect[0])
+
 
             cm_per_pixel = cm_per_px(warped_board_width_px, warped_board_height_px)
             

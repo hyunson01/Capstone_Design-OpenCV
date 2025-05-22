@@ -46,7 +46,7 @@ def mouse_event(event, x, y, flags, param):
     """
     global agents, paths, pathfinder, selected_robot_id
     row, col = y // cell_size, x // cell_size
-    if not (0 <= row < 12 and 0 <= col < 12):
+    if not (0 <= row < grid_row and 0 <= col < grid_col):
         return
 
     updated = False                 # ← 변경 여부 플래그
