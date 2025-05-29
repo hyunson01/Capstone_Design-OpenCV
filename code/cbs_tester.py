@@ -10,7 +10,7 @@ sys.path.append(os.path.normpath(ICBS_PATH))
 import cv2
 import numpy as np
 from grid import load_grid
-from visual import grid_visual, draw_agent_info_window
+from interface import grid_visual, draw_agent_info_window
 from cbs.agent import Agent
 from visualize import Animation
 from simulator import Simulator

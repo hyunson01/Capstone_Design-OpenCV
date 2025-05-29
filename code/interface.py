@@ -1,59 +1,33 @@
 import cv2
 import numpy as np
 
-from config import board_height_cm, board_width_cm, grid_width, grid_height,cell_size
-
-def grid_ini(rows=12, cols=12):
-    return np.zeros((rows, cols), dtype=int)
-
-def grid_tag_visual(grid_visual, tag_info):
-    pass
-
-def info_tag(frame, tag_info):
-    """
-    화면 좌측 상단에 태그별 속도/방향 정보를 표시
-    """
-    base_x = 10
-    base_y = 30
-    line_height = 20
-
-    for idx, (tag_id, data) in enumerate(sorted(tag_info.items())):
-        if data["status"] != "On":
-            continue
-        v = data.get("velocity", (0, 0))
-        vx, vy = v
-        text = f"ID {tag_id}: V=({vx:.2f}, {vy:.2f})"
-        pos = (base_x, base_y + idx * line_height)
-        # cv2.putText(frame, text, pos, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-        
-        smoothed = data.get("smoothed_coordinates")
-        if smoothed:
-            sx, sy = int(smoothed[0]), int(smoothed[1])
-            ex, ey = int(sx + vx * 50), int(sy + vy * 50)
-            # cv2.arrowedLine(frame, (sx, sy), (ex, ey), (255, 0, 0), 2)
-
-
+from config import board_height_cm, board_width_cm, grid_width, grid_height, cell_size, COLORS
 
 def trackbar(val):
     pass
 
 def slider_create():
-    aspect_ratio = board_width_cm / board_height_cm # 가로 세로 비율 계산
-    min_ratio = max(1.0, aspect_ratio - 0.25)  #오차 0.25
+    aspect_ratio = board_width_cm / board_height_cm  # 가로 세로 비율 계산
+    min_ratio = max(1.0, aspect_ratio - 0.25)
     max_ratio = min(2.0, aspect_ratio + 0.25)
 
-    # 슬라이더 생성 (정수형이므로 10x 스케일 사용)
-    cv2.namedWindow("Detected Rectangle")
-    cv2.createTrackbar("Brightness Threshold", "Detected Rectangle", 120, 255, trackbar)
-    cv2.createTrackbar("Min W/H Ratio", "Detected Rectangle", int(min_ratio * 10), 20, trackbar)
-    cv2.createTrackbar("Max W/H Ratio", "Detected Rectangle", int(max_ratio * 10), 20, trackbar)
+    # 슬라이더 전용 창 생성
+    cv2.namedWindow("Sliders", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("Sliders", 500, 120)  # 원하는 고정 크기로 조정
+
+    # 슬라이더를 "Sliders" 창에 생성
+    cv2.createTrackbar("Brightness Threshold", "Sliders", 120, 255, trackbar)
+    cv2.createTrackbar("Min W/H Ratio", "Sliders", int(min_ratio * 10), 20, trackbar)
+    cv2.createTrackbar("Max W/H Ratio", "Sliders", int(max_ratio * 10), 20, trackbar)
+
 
 def slider_value():
-    brightness_threshold = cv2.getTrackbarPos("Brightness Threshold", "Detected Rectangle")
-    min_aspect_ratio = cv2.getTrackbarPos("Min W/H Ratio", "Detected Rectangle") / 10.0
-    max_aspect_ratio = cv2.getTrackbarPos("Max W/H Ratio", "Detected Rectangle") / 10.0
+    brightness_threshold = cv2.getTrackbarPos("Brightness Threshold", "Sliders")
+    min_aspect_ratio = cv2.getTrackbarPos("Min W/H Ratio", "Sliders") / 10.0
+    max_aspect_ratio = cv2.getTrackbarPos("Max W/H Ratio", "Sliders") / 10.0
     return brightness_threshold, min_aspect_ratio, max_aspect_ratio
 
+# 그리드 그리기
 def grid_visual(grid_array):
     visual = np.ones((grid_height, grid_width, 3), dtype=np.uint8) * 255
 
@@ -64,7 +38,6 @@ def grid_visual(grid_array):
             color = (0, 0, 0) if grid_array[i, j] == 1 else (255, 255, 255)
             cv2.rectangle(visual, (cell_x, cell_y), (cell_x + cell_size, cell_y + cell_size), color, -1)
 
-    # 격자선 그리기
     for i in range(grid_array.shape[0] + 1):
         cv2.line(visual, (0, i * cell_size), (grid_width, i * cell_size), (200, 200, 200), 1)
 
@@ -77,11 +50,11 @@ def grid_visual(grid_array):
 is_mouse_pressed = False
 last_toggled = None
 
-# mouse_callback(grid_array)를 받게 수정 ✅
+# 마우스 입력 처리
 def mouse_callback(event, x, y, flags, param):
     global is_mouse_pressed, last_toggled
 
-    grid_array = param   # 여기서 param으로 grid_array 받아쓰기
+    grid_array = param 
     row, col = y // cell_size, x // cell_size
     if not (0 <= row < grid_array.shape[0] and 0 <= col < grid_array.shape[1]):
         return
@@ -102,14 +75,9 @@ def mouse_callback(event, x, y, flags, param):
         is_mouse_pressed = False
         last_toggled = None
 
+# 에이전트 정보 창 그리기
 def draw_agent_info_window(agents, preset_ids, total_height, selected_robot_id=None,
                            delay_input_mode=False, delay_input_buffer="", cell_size=50):
-    """
-    ID 목록(PRESET_IDS)에 맞게 고정된 행 수를 유지하고, 가로 폭은 350으로 고정함.
-    - agents: 현재 존재하는 agent 리스트
-    - preset_ids: 허용된 전체 ID 리스트 (e.g. [1,2,3,...])
-    - total_height: CBS Grid의 높이 (픽셀 기준)
-    """
     rows = len(preset_ids) + 1  # 헤더 포함
     cols = 4
 
@@ -165,9 +133,6 @@ def draw_agent_info_window(agents, preset_ids, total_height, selected_robot_id=N
             if delay_input_buffer:
                 cv2.putText(info_img, delay_input_buffer, (x0 + 5, y0 + int(row_h * 0.6)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-
-
-
     # 라인
     for i in range(rows + 1):
         y = i * row_h
@@ -177,3 +142,25 @@ def draw_agent_info_window(agents, preset_ids, total_height, selected_robot_id=N
 
     return info_img
 
+# 그리드에 에이전트 포인트 그리기
+def draw_agent_points(vis_img, agents):
+    for agent in agents:
+        if agent.start:
+            x, y = agent.start[1] * cell_size, agent.start[0] * cell_size
+            cv2.circle(vis_img, (x + cell_size//2, y + cell_size//2), 5, (0, 255, 0), -1)
+            cv2.putText(vis_img, f"S{agent.id}", (x + 2, y + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
+        if agent.goal:
+            x, y = agent.goal[1] * cell_size, agent.goal[0] * cell_size
+            cv2.circle(vis_img, (x + cell_size//2, y + cell_size//2), 5, (0, 0, 255), -1)
+            cv2.putText(vis_img, f"G{agent.id}", (x + 2, y + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,255), 1)
+
+# CBS 경로 그리기
+def draw_paths(vis_img, paths):
+    for idx, path in enumerate(paths):
+        color = COLORS[idx % len(COLORS)]
+        for pos in path:
+            r, c = pos
+            x, y = c * cell_size, r * cell_size
+            overlay = vis_img.copy()
+            cv2.rectangle(overlay, (x, y), (x + cell_size, y + cell_size), color, -1)
+            cv2.addWeighted(overlay, 0.3, vis_img, 0.7, 0, vis_img)

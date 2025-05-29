@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import os
 import json
-from visual import mouse_callback, grid_visual
+from interface import mouse_callback, grid_visual
 from config import grid_row, grid_col
 
 GRID_FOLDER = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "grid"))

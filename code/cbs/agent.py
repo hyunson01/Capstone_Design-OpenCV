@@ -13,7 +13,7 @@ class Agent:
         self._final_path = None
 
     def get_final_path(self):
-        if self._final_path is None:  # 아직 계산 안 했으면
+        if self._final_path is None:
             if self.delay > 0:
                 self._final_path = [self.start] * self.delay + self.path
             else:
