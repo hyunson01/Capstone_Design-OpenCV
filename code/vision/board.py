@@ -103,6 +103,7 @@ class BoardDetector:
     def get_result(self) -> BoardDetectionResult | None:
         return self._result
     
+    #!!! 외부에서 결과를 입력 받음. 꼭 이렇게 해야할까?
     def draw(self, frame, result: BoardDetectionResult):
         if result is None:
             return

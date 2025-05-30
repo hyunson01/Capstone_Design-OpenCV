@@ -28,6 +28,7 @@ class AprilTagDetector:
             rmat, _ = cv2.Rodrigues(rvec)
             yaw, pitch, roll = cv2.decomposeProjectionMatrix(np.hstack((rmat, tvec)))[-1]
             status = "On"
+            yaw_deg = compute_yaw_deg(tag)
 
             self.tag_info[tag_id] = {
                 "id": tag_id,
@@ -36,6 +37,7 @@ class AprilTagDetector:
                 "corners": tag.corners,
                 "tvec": tvec,
                 "rotation": (roll[0], pitch[0], yaw[0]),
+                "yaw": yaw_deg,
                 "frame_count": frame_count,
             }
 
@@ -71,19 +73,32 @@ class AprilTagDetector:
             tag_cm_y = float(offset_px[1] * cm_per_px[1])
             tag["coordinates"] = (tag_cm_x, tag_cm_y)
 
-            yaw = tag["rotation"][2]  # rotation = (roll, pitch, yaw)
-            tag["yaw"] = float(yaw)  # rad도 아니고 degree 기준으로 이미 있음
-
     def update_and_process(self, tags, frame_count, board_origin, cm_per_px, camera_matrix):
         self.update(tags, frame_count, camera_matrix)
         self.process(board_origin, cm_per_px)
 
     def draw(self, frame: np.ndarray):
+        arrow_length = 150  # 화살표 길이
         for tag_id, data in self.tag_info.items():
             # 사각형 그리기
             if "corners" in data:
                 corners = data["corners"].astype(np.int32).reshape((-1, 1, 2))
                 cv2.polylines(frame, [corners], isClosed=True, color=(0, 255, 0), thickness=2)
+
+            # yaw 방향 화살표 그리기
+            if "yaw" not in data or "center" not in data:
+                continue
+            center = tuple(map(int, data["center"]))
+            yaw_deg = data["yaw"]
+            theta = np.deg2rad(yaw_deg)
+
+            dx = int(arrow_length * np.cos(theta))
+            dy = int(-arrow_length * np.sin(theta))  # OpenCV 영상 좌표계 보정
+
+            pt1 = center
+            pt2 = (center[0] + dx, center[1] + dy)
+            cv2.arrowedLine(frame, pt1, pt2, (0, 222, 0), 2, tipLength=0.3)
+            
 
             # 중심 ID 텍스트 그리기
             center = tuple(map(int, data["center"]))
@@ -107,15 +122,28 @@ def solve_pose(tag, object_points, new_camera_matrix):
     retval, rvec, tvec = cv2.solvePnP(object_points[:4], corners, new_camera_matrix, dist_coeffs)
     return rvec, tvec
 
-# 상대 yaw 계산
-def compute_relative_yaw(yaw_deg, north_vec):
-    theta = np.deg2rad(yaw_deg)
-    tag_dir = np.array([np.cos(theta), np.sin(theta)])
-    cos_theta = np.clip(np.dot(tag_dir, north_vec), -1.0, 1.0)
-    angle = np.arccos(cos_theta)
-    if np.cross(north_vec, tag_dir) < 0:
-        angle = -angle
-    return angle  # 라디안 단위
+def compute_yaw_deg(tag):
+    pt0 = tag.corners[0]  # top-left
+    pt1 = tag.corners[1]  # top-right
+
+    dx = pt1[0] - pt0[0]
+    dy = pt1[1] - pt0[1]
+
+    # 영상 좌표계 기준 (origin = top-left, y+ is downward)
+    angle_rad = np.arctan2(-dy, dx)  # y축 반전 보정
+    angle_deg = np.rad2deg(angle_rad)
+
+    return angle_deg
+
+# # 상대 yaw 계산
+# def compute_relative_yaw(yaw_deg, north_vec):
+#     theta = np.deg2rad(yaw_deg)
+#     tag_dir = np.array([np.cos(theta), np.sin(theta)])
+#     cos_theta = np.clip(np.dot(tag_dir, north_vec), -1.0, 1.0)
+#     angle = np.arccos(cos_theta)
+#     if np.cross(north_vec, tag_dir) < 0:
+#         angle = -angle
+#     return angle  # 라디안 단위
 
 # # 중심 보정
 # def correct_robot_position(tag_cm_pos, relative_yaw_rad, offset_cm=(-3.0, 0.0)):

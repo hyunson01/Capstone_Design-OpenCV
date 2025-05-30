@@ -70,7 +70,7 @@ def estimate_tag_offset_cm(tag, frame_shape, tag_size_cm=3.2):
     distance_cm = np.linalg.norm(offset_cm)
     return offset_cm, distance_cm
 
-def compute_relative_yaw(tag, camera_matrix, dist_coeffs, object_points):
+def compute_relative_yaw(tag):
     pt0 = tag.corners[0]  # top-left
     pt1 = tag.corners[1]  # top-right
 
@@ -88,7 +88,7 @@ def compute_center_yaw(tag, frame_shape):
     tag_center = np.array(tag.center)
 
     dx, dy = frame_center - tag_center
-    angle_rad = np.arctan2(-dy, dx)  # 영상 기준 y축 반전
+    angle_rad = np.arctan2(-dy, dx) 
     angle_deg = np.rad2deg(angle_rad)
     return angle_deg
 
