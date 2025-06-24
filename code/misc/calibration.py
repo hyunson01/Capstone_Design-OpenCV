@@ -1,85 +1,157 @@
+#!/usr/bin/env python3
+"""
+Wide-angle calibration viewer (uniform 2x2 layout)
+==================================================
+
+* Rational vs Fisheye 보정 결과를 공정하게 비교:
+  - 좌상: Rational Full
+  - 좌하: Rational Cropped (ROI)
+  - 우상: Fisheye Full
+  - 우하: Fisheye 중앙 Crop
+
+* 모든 이미지를 동일 크기로 맞춤 (작으면 회색 패딩)
+* A/D 키로 이미지 넘김, Q/ESC 종료
+"""
+
 import cv2
 import numpy as np
 import glob
 import os
 
-# 체커보드 크기 설정 (내부 코너 개수)
-CHECKERBOARD = (10,7)  # 내부 코너 개수 (체커보드 패턴에 맞게 조정)
-square_size = 0.025  # 체커보드 칸 크기 (미터 단위, 실제 크기에 맞춰 조정)
+# === 사용자 설정 ===
+IMG_PATH     = r"D:\git\Capstone_Design-OpenCV\img\calibration\test\*.jpg"
+CHECKERBOARD = (10, 7)
+SQUARE_SIZE  = 0.025
+CACHE_FILE   = "calib_cache.npz"
+VIEW_WIDTH   = 700  # 각 패널 너비
+VIEW_HEIGHT  = 500  # 각 패널 높이
 
-# 체커보드 찾기 알고리즘의 종료 기준 설정
-criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+# === 보정 결과 (로드 또는 캘리브레이션) ===
+def calibrate(images):
+    objp = np.zeros((CHECKERBOARD[0]*CHECKERBOARD[1], 3), np.float32)
+    objp[:, :2] = np.mgrid[0:CHECKERBOARD[0], 0:CHECKERBOARD[1]].T.reshape(-1, 2)
+    objp *= SQUARE_SIZE
 
-# 3D 세계 좌표 준비 (Z=0 평면 상의 3D 점)
-objp = np.zeros((CHECKERBOARD[0] * CHECKERBOARD[1], 3), np.float32)
-objp[:, :2] = np.mgrid[0:CHECKERBOARD[0], 0:CHECKERBOARD[1]].T.reshape(-1, 2) * square_size
+    objpoints, imgpoints = [], []
 
-# 3D 점과 2D 점 저장할 리스트
-objpoints = []  # 3D 공간 좌표
-imgpoints = []  # 2D 이미지 좌표
+    for fname in images:
+        img = cv2.imread(fname)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        ret, corners = cv2.findChessboardCornersSB(
+            gray, CHECKERBOARD,
+            cv2.CALIB_CB_EXHAUSTIVE | cv2.CALIB_CB_ACCURACY)
 
-# 현재 실행 중인 Python 파일의 경로 찾기
-script_dir = os.path.dirname(os.path.abspath(__file__))
-images_path = r"C:\img\calibration\*.jpg"
-images = glob.glob(images_path)
+        if ret:
+            objpoints.append(objp)
+            imgpoints.append(corners)
+        else:
+            print(f"[!] 코너 탐지 실패: {fname}")
 
-# 이미지가 없을 경우 프로그램 종료
-if not images:
-    print("⚠️ No images found in the 'images' directory!")
-    exit()
+    img_size = gray.shape[::-1]
 
-valid_images = 0  # 정상적으로 처리된 이미지 개수
+    flags_r = cv2.CALIB_RATIONAL_MODEL | cv2.CALIB_FIX_ASPECT_RATIO | cv2.CALIB_ZERO_TANGENT_DIST
+    rms_r, K_r, D_r, *_ = cv2.calibrateCamera(objpoints, imgpoints, img_size, None, None, flags=flags_r)
 
-for fname in images:
-    print(f"Trying to read: {fname}")  # 디버깅을 위한 이미지 경로 출력
-    img = cv2.imread(fname)
+    objpoints_f = [o.reshape(-1,1,3) for o in objpoints]
+    imgpoints_f = [i.reshape(-1,1,2) for i in imgpoints]
+    K_f = np.zeros((3,3)); D_f = np.zeros((4,1))
+    flags_f = cv2.fisheye.CALIB_RECOMPUTE_EXTRINSIC | cv2.fisheye.CALIB_FIX_SKEW
+    rms_f, K_f, D_f, *_ = cv2.fisheye.calibrate(
+        objpoints_f, imgpoints_f, img_size, K_f, D_f, None, None, flags=flags_f,
+        criteria=(cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 1e-6))
 
-    if img is None:
-        print(f"❌ Error: Could not load image {fname}")  # 이미지 불러오기 실패 시 경고
-        continue  # 이미지 로드 실패 시 다음 이미지로 건너뛰기
+    np.savez_compressed(CACHE_FILE, K_r=K_r, D_r=D_r, rms_r=rms_r,
+                        K_f=K_f, D_f=D_f, rms_f=rms_f, img_size=img_size)
+    print("[√] Calibration 저장 완료")
 
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)  # 흑백 변환
 
-    # 체커보드 코너 찾기
-    ret, corners = cv2.findChessboardCorners(gray, CHECKERBOARD, None)
+def load_calibration():
+    if not os.path.exists(CACHE_FILE):
+        calibrate(glob.glob(IMG_PATH))
+    return np.load(CACHE_FILE)
 
-    if ret:
-        objpoints.append(objp)
-        # 코너 미세 조정
-        corners2 = cv2.cornerSubPix(gray, corners, (11,11), (-1,-1), criteria)
-        imgpoints.append(corners2)
 
-        # 체커보드 코너 그리기
-        cv2.drawChessboardCorners(img, CHECKERBOARD, corners2, ret)
-        cv2.imshow('Calibration Image', img)
-        cv2.waitKey(500)
+def pad_and_resize(image, size=(VIEW_HEIGHT, VIEW_WIDTH)):
+    h, w = image.shape[:2]
+    scale = min(size[1]/w, size[0]/h)
+    resized = cv2.resize(image, (int(w*scale), int(h*scale)))
+    canvas = np.full((size[0], size[1], 3), 160, dtype=np.uint8)
+    ry, rx = resized.shape[:2]
+    y0 = (size[0] - ry) // 2
+    x0 = (size[1] - rx) // 2
+    canvas[y0:y0+ry, x0:x0+rx] = resized
+    return canvas
 
-        valid_images += 1  # 유효한 이미지 개수 증가
 
-cv2.destroyAllWindows()
+def generate_grid_view(img, K_r, D_r, K_f, D_f, balance):
+    h, w = img.shape[:2]
 
-# 📌 유효한 이미지가 하나도 없으면 종료
-if valid_images == 0:
-    print("❌ No valid images for calibration. Please check your images.")
-    exit()
+    # Rational full & cropped (고정)
+    newK_r_full, _ = cv2.getOptimalNewCameraMatrix(K_r, D_r, (w, h), 1)
+    rational_full = cv2.undistort(img, K_r, D_r, None, newK_r_full)
 
-# 카메라 캘리브레이션 수행
-ret, cameraMatrix, distCoeffs, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
+    newK_r_crop, roi = cv2.getOptimalNewCameraMatrix(K_r, D_r, (w, h), 0)
+    rational_crop = cv2.undistort(img, K_r, D_r, None, newK_r_crop)
+    x, y, rw, rh = roi
+    rational_crop = rational_crop[y:y+rh, x:x+rw]
 
-# 결과 출력
-print("✅ Camera Matrix:\n", cameraMatrix)
-print("✅ Distortion Coefficients:\n", distCoeffs)
+    # Fisheye with adjustable balance
+    newK_f = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(
+        K_f, D_f, (w, h), np.eye(3), balance=balance)
+    map1, map2 = cv2.fisheye.initUndistortRectifyMap(
+        K_f, D_f, np.eye(3), newK_f, (w, h), cv2.CV_16SC2)
+    fisheye_full = cv2.remap(img, map1, map2, interpolation=cv2.INTER_LINEAR)
 
-# 📌 보정값 저장
-# 이미지들이 있는 폴더 경로 가져오기
-image_folder = os.path.dirname(images[0])  # 첫 번째 이미지 기준으로 경로 추출
+    pad = int(0.1 * h)
+    fisheye_crop = fisheye_full[pad:-pad, pad:-pad]
 
-# 저장 경로 구성
-camera_matrix_path = os.path.join(image_folder, "camera_matrix.npy")
-dist_coeffs_path = os.path.join(image_folder, "dist_coeffs.npy")
+    # Resize & pad
+    rf = pad_and_resize(rational_full)
+    rc = pad_and_resize(rational_crop)
+    ff = pad_and_resize(fisheye_full)
+    fc = pad_and_resize(fisheye_crop)
 
-# 저장
-np.save(camera_matrix_path, cameraMatrix)
-np.save(dist_coeffs_path, distCoeffs)
+    left = np.vstack([rf, rc])
+    right = np.vstack([ff, fc])
+    return np.hstack([left, right])
 
-print(f"✅ Calibration data saved to:\n{camera_matrix_path}\n{dist_coeffs_path}")
+
+
+
+def main():
+    data = load_calibration()
+    K_r, D_r, rms_r = data["K_r"], data["D_r"], data["rms_r"]
+    K_f, D_f, rms_f = data["K_f"], data["D_f"], data["rms_f"]
+
+    images = sorted(glob.glob(IMG_PATH))
+    idx, N = 0, len(images)
+
+    window_name = "Calibration Comparison (2x2)"
+    cv2.namedWindow(window_name)
+
+    # 슬라이더 생성: 0~100 → balance 0.00~1.00
+    def nothing(x): pass
+    cv2.createTrackbar("Fisheye Balance", window_name, 20, 100, nothing)
+
+    while True:
+        img = cv2.imread(images[idx])
+        balance_val = cv2.getTrackbarPos("Fisheye Balance", window_name) / 100.0
+        stacked = generate_grid_view(img, K_r, D_r, K_f, D_f, balance=balance_val)
+
+        name = os.path.basename(images[idx])
+        title = f"{name} ({idx+1}/{N}) | Rational RMS={rms_r:.3f} | Fisheye RMS={rms_f:.3f} | Balance={balance_val:.2f}"
+        cv2.imshow(window_name, stacked)
+        key = cv2.waitKey(50) & 0xFF
+
+        if key in [ord('q'), 27]:
+            break
+        elif key == ord('a'):
+            idx = (idx - 1) % N
+        elif key == ord('d'):
+            idx = (idx + 1) % N
+
+    cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    main()
