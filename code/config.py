@@ -1,27 +1,52 @@
 import numpy as np
 import os
 
-# 카메라 매개변수 (캘리브레이션된 값 사용)
-camera_id = 2
-CAMERA_FILE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "camera"))
-CAMERA_DIR = os.path.join(CAMERA_FILE_DIR, str(camera_id))
+# ===카메라 매개변수 (캘리브레이션된 값 사용)===
+# 선택할 카메라 ID
+CAMERA_ID = 4  # 1: 처음 쓴 카메라, 2: 교체형 - 소형 렌즈, 4: 교체형 - fisheye 렌즈
 
-camera_matrix_path = os.path.join(CAMERA_DIR, "camera_matrix.npy")
-dist_coeffs_path = os.path.join(CAMERA_DIR, "dist_coeffs.npy")
+# 카메라 ID별 폴더 경로
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "camera"))
 
-camera_matrix = np.load(camera_matrix_path)
-dist_coeffs = np.load(dist_coeffs_path)
+# 지원할 카메라 목록
+SUPPORTED_CAMERA_IDS = [1, 2, 4]
 
+# 설정 딕셔너리 생성
+CAMERA_SETTINGS = {}
+for cam_id in SUPPORTED_CAMERA_IDS:
+    cam_dir = os.path.join(BASE_DIR, str(cam_id))
+    # calibration 파일 경로
+    matrix_path = os.path.join(cam_dir, "camera_matrix.npy")
+    dist_path   = os.path.join(cam_dir, "dist_coeffs.npy")
+
+    # numpy 로드
+    cam_matrix  = np.load(matrix_path)
+    dist_coeffs = np.load(dist_path)
+
+    # 카메라 타입 지정 (fisheye vs normal)
+    cam_type = 'fisheye' if cam_id == 4 else 'normal'
+    image_size = (720, 1280)
+
+    CAMERA_SETTINGS[cam_id] = {
+        'type': cam_type,
+        'matrix': cam_matrix,
+        'dist': dist_coeffs,
+        'size': image_size
+    }
+# 현재 선택된 카메라 설정 가져오기
+camera_cfg = CAMERA_SETTINGS[CAMERA_ID]
+
+#===카메라 매개변수 끝===
 
 
 # 보드 크기 (cm 단위)
-board_width_cm = 120
-board_height_cm = 120
+board_width_cm = 60
+board_height_cm = 60
 
 # 태그 정보
-tag_size = 0.032  # 태그 크기 (단위: 미터)
+tag_size = 0.044  # 태그 크기 (단위: 미터)
 tag_role = {      # 태그 ID와 역할 매핑
-    20: "board",
+    12: "board",
 }
 object_points = np.array([
     [0, 0, 0],

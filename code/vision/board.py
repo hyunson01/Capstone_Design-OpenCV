@@ -24,11 +24,14 @@ class BoardDetector:
         self.grid_width = grid_width
         self.grid_height = grid_height
 
-    def process(self, frame_gray, detect_params=None) -> BoardDetectionResult | None:
+    def process(self, frame_gray, data) -> BoardDetectionResult | None:
         if self._locked:
             return self._result
         
-        brightness, min_aspect_ratio, max_aspect_ratio = detect_params
+        if not isinstance(data, (list, tuple)):
+            return self._result
+        
+        brightness, min_aspect_ratio, max_aspect_ratio = data
         rect = self._detect_board(frame_gray, brightness, min_aspect_ratio, max_aspect_ratio)
 
         if rect is not None:
@@ -49,7 +52,7 @@ class BoardDetector:
             )
             return self._result
         else:
-            print("[DEBUG] 보드 탐지 실패. 이전 결과 유지됨")
+            # print("[DEBUG] 보드 탐지 실패. 이전 결과 유지됨")
             return self._result
     
     def generate_coordinate_system(self):

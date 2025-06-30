@@ -1,95 +1,109 @@
 import cv2
 import numpy as np
-import tkinter as tk
-from tkinter import ttk
-from PIL import Image, ImageTk
-import glob
 import os
 
-# 이미지 경로 설정
-IMG_PATH = r"D:\git\Capstone_Design-OpenCV\img\calibration\3-2\*.jpg"
-image_paths = sorted(glob.glob(IMG_PATH))
-if not image_paths:
-    raise FileNotFoundError("이미지를 찾을 수 없습니다.")
+# === 사용자 설정 ===
+CHECKERBOARD = (10, 7)
+SQUARE_SIZE  = 0.025
+CACHE_FILE   = "calib_cache.npz"
+VIEW_WIDTH   = 640
+VIEW_HEIGHT  = 480
 
-# 예시 K_f, D_f 설정 (실제 캘리브레이션 값으로 교체)
-# h, w는 첫 이미지 기준
-sample_img = cv2.imread(image_paths[0])
-h, w = sample_img.shape[:2]
-K_f = np.array([[300.0, 0.0, w / 2],
-                [0.0, 300.0, h / 2],
-                [0.0, 0.0, 1.0]])
-D_f = np.array([[-0.1], [0.01], [0.0], [0.0]])
+def load_calibration():
+    if not os.path.exists(CACHE_FILE):
+        print("[!] 보정 캐시가 없습니다. 보정 이미지를 통한 캘리브레이션 먼저 수행 필요.")
+        exit(1)
+    return np.load(CACHE_FILE)
 
-# 현재 이미지 인덱스
-img_idx = 0
+def pad_and_resize(image, size=(VIEW_HEIGHT, VIEW_WIDTH)):
+    h, w = image.shape[:2]
+    scale = min(size[1]/w, size[0]/h)
+    resized = cv2.resize(image, (int(w*scale), int(h*scale)))
+    canvas = np.full((size[0], size[1], 3), 160, dtype=np.uint8)
+    ry, rx = resized.shape[:2]
+    y0 = (size[0] - ry) // 2
+    x0 = (size[1] - rx) // 2
+    canvas[y0:y0+ry, x0:x0+rx] = resized
+    return canvas
 
-# Tkinter GUI
-root = tk.Tk()
-root.title("Fisheye Undistortion Viewer (A/D to navigate)")
+def overlay_grid(image, rows=10, cols=10, color=(0, 0, 255), alpha=0.3):
+    """영상 위에 반투명 격자 그리기"""
+    overlay = image.copy()
+    h, w = image.shape[:2]
+    
+    # 수직선
+    for i in range(1, cols):
+        x = int(w * i / cols)
+        cv2.line(overlay, (x, 0), (x, h), color, 1)
+    
+    # 수평선
+    for i in range(1, rows):
+        y = int(h * i / rows)
+        cv2.line(overlay, (0, y), (w, y), color, 1)
 
-# Tk Label 영역
-panel = tk.Label(root)
-panel.pack()
+    return cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0)
 
-label_info = tk.Label(root, text="", font=("Arial", 12))
-label_info.pack()
+def main():
+    data = load_calibration()
+    K_f, D_f, rms_f = data["K_f"], data["D_f"], data["rms_f"]
+    alt_data = np.load("fisheye_calib_balance0.npz")
+    K_alt, D_alt = alt_data["K"], alt_data["D"]
+    window_name = "Fisheye Undistortion View"
+    cv2.namedWindow(window_name)
 
-slider_label = tk.Label(root, text="balance = 0.30", font=("Arial", 12))
-slider_label.pack()
+    cap = cv2.VideoCapture(1)  # 카메라 인덱스 1
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
 
-slider = ttk.Scale(root, from_=0, to=100, orient='horizontal')
-slider.set(30)
-slider.pack()
+    if not cap.isOpened():
+        print("[!] 카메라 열기 실패")
+        return
 
-def load_image(idx):
-    img_path = image_paths[idx]
-    return cv2.imread(img_path), os.path.basename(img_path)
+    cv2.createTrackbar("Fisheye Balance", window_name, 20, 100, lambda x: None)
 
-def show_image(balance_val=None):
-    global img_idx
+    last_balance_val = -1.0
+    map1, map2 = None, None
 
-    if balance_val is None:
-        balance = float(slider.get()) / 100
-    else:
-        balance = float(balance_val) / 100
-        slider.set(balance * 100)
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            print("[!] 프레임 수신 실패")
+            break
 
-    img, name = load_image(img_idx)
+        h, w = frame.shape[:2]
+        balance_val = cv2.getTrackbarPos("Fisheye Balance", window_name) / 100.0
 
-    newK = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(
-        K_f, D_f, (w, h), np.eye(3), balance=balance)
+        if balance_val != last_balance_val:
+            newK_f = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K_f, D_f, (w, h), np.eye(3), balance=balance_val)
+            map1_f, map2_f = cv2.fisheye.initUndistortRectifyMap(K_f, D_f, np.eye(3), newK_f, (w, h), cv2.CV_16SC2)
 
-    map1, map2 = cv2.fisheye.initUndistortRectifyMap(
-        K_f, D_f, np.eye(3), newK, (w, h), cv2.CV_16SC2)
-    undistorted = cv2.remap(img, map1, map2, interpolation=cv2.INTER_LINEAR)
+            newK_alt = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K_alt, D_alt, (w, h), np.eye(3), balance=balance_val)
+            map1_alt, map2_alt = cv2.fisheye.initUndistortRectifyMap(K_alt, D_alt, np.eye(3), newK_alt, (w, h), cv2.CV_16SC2)
 
-    # Convert to PIL Image
-    img_rgb = cv2.cvtColor(undistorted, cv2.COLOR_BGR2RGB)
-    img_pil = Image.fromarray(img_rgb)
-    img_pil = img_pil.resize((int(w * 0.6), int(h * 0.6)))
-    img_tk = ImageTk.PhotoImage(image=img_pil)
+            last_balance_val = balance_val
 
-    panel.config(image=img_tk)
-    panel.image = img_tk
+        # 두 보정 결과 생성
+        undist_f = cv2.remap(frame, map1_f, map2_f, interpolation=cv2.INTER_LINEAR)
+        undist_alt = cv2.remap(frame, map1_alt, map2_alt, interpolation=cv2.INTER_LINEAR)
 
-    label_info.config(text=f"[{img_idx + 1}/{len(image_paths)}] {name}")
-    slider_label.config(text=f"balance = {balance:.2f}")
+        # 크기 맞추고 나란히 결합
+        view1 = pad_and_resize(undist_f)
+        view2 = pad_and_resize(undist_alt)
+        comparison = np.hstack((view1, view2))
 
-def on_key(event):
-    global img_idx
-    key = event.keysym.lower()
-    if key == 'a':
-        img_idx = (img_idx - 1) % len(image_paths)
-        show_image()
-    elif key == 'd':
-        img_idx = (img_idx + 1) % len(image_paths)
-        show_image()
+        # 텍스트 오버레이
+        cv2.putText(comparison, "calib_cache.npz", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+        cv2.putText(comparison, "fisheye_calib_balance0.npz", (VIEW_WIDTH + 30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
-slider.configure(command=show_image)
-root.bind('<Key>', on_key)
+        cv2.imshow(window_name, comparison)
 
-# 초기 표시
-show_image()
+        key = cv2.waitKey(1) & 0xFF
+        if key in [ord('q'), 27]:
+            break
 
-root.mainloop()
+    cap.release()
+    cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    main()

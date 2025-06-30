@@ -13,9 +13,9 @@ sys.path.append(os.path.normpath(ICBS_PATH))
 # code에서 필요한 모듈 임포트
 from grid import load_grid
 from interface import grid_visual, slider_create, slider_value, draw_agent_points, draw_paths
-from config import grid_row, grid_col, cell_size
+from config import grid_row, grid_col, cell_size, camera_cfg
 from vision.visionsystem import VisionSystem
-from vision.camera import camera_open
+from vision.camera import camera_open, Undistorter
 from cbs.pathfinder import PathFinder
 from cbs.agent import Agent
 from commandSendTest3 import CommandSet
@@ -31,11 +31,19 @@ visualize = True
 
 # 비전 시스템 초기화
 video_path = r"C:/img/test2.mp4"
-cap, fps = camera_open(source=None)
-vision = VisionSystem(visualize=True) # 특정 카메라나 영상을 쓰고 싶을 시 source=0(원하는 카메라 번호) 또는 source=video_path로 설정, 아니면 None으로 두기
+cap, fps = camera_open(source=None) # 특정 카메라나 영상을 쓰고 싶을 시 source=0(원하는 카메라 번호) 또는 source=video_path로 설정, 아니면 None으로 두기
+
+undistorter = Undistorter(
+    camera_cfg['type'],
+    camera_cfg['matrix'],
+    camera_cfg['dist'],
+    camera_cfg['size']
+)
+
+vision = VisionSystem(undistorter=undistorter, visualize=True)
 
 # 사용할 ID 목록
-PRESET_IDS = [1,2,3,4,5,6,7,8,9,10,11,12]  # 예시: 1~12까지의 ID 사용
+PRESET_IDS = [1,2,3,4,5,6,7,8,9,10,11]  # 예시: 1~12까지의 ID 사용
 
 # 마우스 콜백 함수
 def mouse_event(event, x, y, flags, param):
@@ -267,11 +275,11 @@ def main():
             agents.clear()
             paths.clear()
         elif key == ord('m'):
-            if manager:
-                print("--- Current Agents ---")
-                print(manager.get_agents())  # 그대로 OK
-            else:
-                print("No CBSManager initialized yet.")
+            # 현재 모드가 'tag'면 'contour'로, 아니면 'tag'로 토글
+            new_mode = 'contour' if vision.board_mode == 'tag' else 'tag'
+            vision.set_board_mode(new_mode)
+            print(f"Board mode switched to: {new_mode}")
+
         elif key == ord('c'):  # 'c' 키로 CBS 재계산
             if all(a.start and a.goal for a in agents):
                 compute_cbs()
