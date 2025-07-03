@@ -14,6 +14,10 @@ class TagBoardDetector(BoardDetector):
         self._result = None
         self._locked = False
 
+    def detect(self, binary_roi, data):
+        corners = self._detect_board(data, binary_roi)
+        return corners
+    
     def _detect_board(self, tags, frame_gray):
         tag = next((t for t in tags if t.tag_id in tag_role and t.corners is not None), None)
         if tag is None:
@@ -49,7 +53,7 @@ class TagBoardDetector(BoardDetector):
         scale = self._tag_size_cm / max(self._last_tag_px, 1)
         return (scale, scale)
 
-    def process(self, frame_gray, data) -> BoardDetectionResult | None:
+    def process(self, frame_gray, data, rect_override) -> BoardDetectionResult | None:
         if self._locked:
             return self._result
 

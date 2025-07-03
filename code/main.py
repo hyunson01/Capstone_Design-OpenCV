@@ -237,6 +237,7 @@ def main():
     detect_params = slider_value()  # 슬라이더에서 받아오기
 
     cv2.namedWindow("Video_display", cv2.WINDOW_NORMAL)
+    cv2.setMouseCallback("Video_display", vision.mouse_callback)
     cv2.namedWindow("CBS Grid")
     cv2.setMouseCallback("CBS Grid", mouse_event)
 
@@ -263,9 +264,8 @@ def main():
         draw_paths(vis, paths)
         draw_agent_points(vis, agents)
         
-        display_frame = cv2.resize(frame, (960, 540))
         cv2.imshow("CBS Grid", vis)
-        cv2.imshow("Video_display", display_frame)
+        cv2.imshow("Video_display", frame)
 
         key = cv2.waitKey(1)
         if key == ord('q'):  # 'q' 키 -> 종료 (저장 없이)
@@ -300,7 +300,11 @@ def main():
 
         elif key == ord('p'):
             compute_and_publish_errors(tag_info, agents)
-    
+        
+        elif key == ord('s'):
+            vision.start_roi_selection()
+
+
     cap.release()
     cv2.destroyAllWindows()
 

@@ -46,7 +46,7 @@ board_height_cm = 60
 # 태그 정보
 tag_size = 0.044  # 태그 크기 (단위: 미터)
 tag_role = {      # 태그 ID와 역할 매핑
-    12: "board",
+    # 12: "board",
 }
 object_points = np.array([
     [0, 0, 0],
