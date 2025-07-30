@@ -5,9 +5,11 @@ import paho.mqtt.client as mqtt
 import math
 
 # — MQTT 브로커 설정 — (command_transfer2.py와 동일)
-MQTT_BROKER = "192.168.123.100"
+MQTT_BROKER = "192.168.0.25"
 MQTT_PORT   = 1883
 CLIENT_ID   = "ErrorPublisher"
+
+last_errors = {}
 
 # — (dx, dy, dtheta)
 ERRORS = {
@@ -53,6 +55,8 @@ def quantize_direction(yaw):
     return min(directions.items(), key=lambda kv: angular_distance(yaw, kv[1]))[0]
 
 def compute_and_publish_errors(tag_info, agents):
+    global last_errors
+    last_errors.clear() 
     try:
         client = mqtt.Client(CLIENT_ID)
         client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)

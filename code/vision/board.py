@@ -30,6 +30,15 @@ class BoardDetector:
 
     def process(self, frame_gray, data, rect_override=None) -> BoardDetectionResult | None:
         if self._locked:
+            # 저장된 H로 매 프레임 warp 다시 계산
+            H = self._result.perspective_matrix
+            w_px = int(self._result.width_px)
+            h_px = int(self._result.height_px)
+            warped, warped_resized = None, None
+            warped = cv2.warpPerspective(frame_gray, H, (w_px, h_px))
+            warped_resized = cv2.resize(warped, (frame_gray.shape[1]//2, frame_gray.shape[1]//2))
+            self._result.warped = warped
+            self._result.warped_resized = warped_resized
             return self._result
         
         if rect_override is not None:
@@ -156,7 +165,7 @@ class BoardDetector:
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
 
         # 7) 펼쳐진 보드 뷰를 창에 표시
-        cv2.imshow("Warped Board Preview", vis)
+        # cv2.imshow("Warped Board Preview", vis)
         cv2.waitKey(1)
 
     def reset(self):

@@ -38,15 +38,17 @@ camera_cfg = CAMERA_SETTINGS[CAMERA_ID]
 
 #===카메라 매개변수 끝===
 
+CORRECTION_COEF = 0.89
 
 # 보드 크기 (cm 단위)
 board_width_cm = 60
 board_height_cm = 60
 
 # 태그 정보
+NORTH_TAG_ID = 12
 tag_size = 0.044  # 태그 크기 (단위: 미터)
 tag_role = {      # 태그 ID와 역할 매핑
-    # 12: "board",
+     NORTH_TAG_ID: "board",
 }
 object_points = np.array([
     [0, 0, 0],

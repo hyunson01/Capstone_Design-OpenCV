@@ -135,22 +135,57 @@ def compute_yaw_deg(tag):
 
     return angle_deg
 
-# # 상대 yaw 계산
-# def compute_relative_yaw(yaw_deg, north_vec):
-#     theta = np.deg2rad(yaw_deg)
-#     tag_dir = np.array([np.cos(theta), np.sin(theta)])
-#     cos_theta = np.clip(np.dot(tag_dir, north_vec), -1.0, 1.0)
-#     angle = np.arccos(cos_theta)
-#     if np.cross(north_vec, tag_dir) < 0:
-#         angle = -angle
-#     return angle  # 라디안 단위
+def estimate_tag_offset_cm(tag, frame_shape, tag_size_cm=3.2):
+    """
+    화면 중심과 태그 중심의 픽셀 오프셋을 cm 단위로 변환하고
+    그 유클리드 거리를 반환합니다.
+    """
+    img_h, img_w = frame_shape[:2]
+    frame_center = np.array([img_w / 2, img_h / 2])
+    tag_center   = np.array(tag.center)
+    offset_px    = tag_center - frame_center
 
-# # 중심 보정
-# def correct_robot_position(tag_cm_pos, relative_yaw_rad, offset_cm=(-3.0, 0.0)):
-#     offset_vec = np.array(offset_cm)
-#     rot_matrix = np.array([
-#         [np.cos(relative_yaw_rad), -np.sin(relative_yaw_rad)],
-#         [np.sin(relative_yaw_rad),  np.cos(relative_yaw_rad)]
-#     ])
-#     delta = rot_matrix @ offset_vec
-#     return tag_cm_pos[0] + delta[0], tag_cm_pos[1] + delta[1]
+    corners = tag.corners
+    edge_lengths = [
+        np.linalg.norm(corners[0] - corners[1]),
+        np.linalg.norm(corners[1] - corners[2]),
+        np.linalg.norm(corners[2] - corners[3]),
+        np.linalg.norm(corners[3] - corners[0])
+    ]
+    avg_edge_px = np.mean(edge_lengths)
+    cm_per_px   = tag_size_cm / avg_edge_px
+
+    offset_cm   = offset_px * cm_per_px
+    distance_cm = np.linalg.norm(offset_cm)
+    return offset_cm, distance_cm
+
+
+def compute_relative_yaw(tag, camera_matrix, dist_coeffs, object_points):
+    """
+    태그의 top-left→top-right 벡터로부터 태그가 바라보는 절대 yaw(°)를 계산합니다.
+    """
+    pt0 = tag.corners[0]
+    pt1 = tag.corners[1]
+    dx  = pt1[0] - pt0[0]
+    dy  = pt1[1] - pt0[1]
+    angle_rad = np.arctan2(-dy, dx)
+    return np.rad2deg(angle_rad)
+
+
+def compute_center_yaw(tag, frame_shape):
+    """
+    화면 중심에서 태그 중심을 향하는 방향의 yaw(°)를 계산합니다.
+    """
+    frame_center = np.array([frame_shape[1] / 2, frame_shape[0] / 2])
+    tag_center   = np.array(tag.center)
+    dx, dy       = frame_center - tag_center
+    angle_rad    = np.arctan2(-dy, dx)
+    return np.rad2deg(angle_rad)
+
+
+def compute_relative_yaw_difference(yaw_tag, center_yaw):
+    """
+    태그 절대 yaw와 화면 중심을 향하는 yaw 차이를
+    –180°~+180° 범위로 정규화하여 반환합니다.
+    """
+    return (center_yaw - yaw_tag + 180) % 360 - 180

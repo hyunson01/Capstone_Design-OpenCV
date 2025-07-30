@@ -9,7 +9,7 @@ from vision.apriltag import AprilTagDetector, tag_pose
 from vision.camera import camera_open, frame_process
 from config import camera_matrix, dist_coeffs, object_points
 
-MQTT_BROKER = "192.168.123.100"
+MQTT_BROKER = "192.168.0.25"
 MQTT_PORT = 1883
 ROBOT_ID = "1"
 

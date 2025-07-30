@@ -1,7 +1,6 @@
 import sys
 import os
 import random
-from datetime import datetime
 
 # MAPF-ICBS\code 경로를 추가
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -16,7 +15,7 @@ from cbs.agent import Agent
 from visualize import Animation
 from simulator import Simulator
 from fake_mqtt import FakeMQTTBroker
-from commandSendTest_Sim import CommandSet
+from commandSendTest3 import CommandSet
 from cbs.pathfinder import PathFinder
 from config import COLORS, grid_row, grid_col, cell_size
 import json
@@ -167,7 +166,19 @@ def get_start_from_robot():
 def get_direction_from_robot():
     for agent in agents:
         if agent.id in sim.robots:
-            agent.initial_dir = predict_robot_dir(sim.robots[agent.id])
+            robot = sim.robots[agent.id]
+            directions = ["north", "east", "south", "west"]
+            idx = directions.index(robot.direction)
+
+            if robot.rotating and robot.rotation_dir:
+                delta = 1 if robot.rotation_dir == "right" else -1
+                expected_dir = directions[(idx + delta) % 4]
+            else:
+                expected_dir = robot.direction
+
+            agent.initial_dir = expected_dir  # CommandSet 생성 시 참조할 수 있게 저장
+
+
 
 #CBS 계산
 def compute_cbs():
@@ -175,7 +186,6 @@ def compute_cbs():
 
     grid_array = load_grid(grid_row, grid_col)
     get_start_from_robot()
-    get_direction_from_robot() 
     if random_mode_enabled:
         assigned = False
         for agent in agents:
@@ -225,7 +235,16 @@ def compute_cbs():
             robot = sim.robots[agent.id]
 
             # 예상 방향 계산 (회전 보간 포함)
-            expected_dir = agent.initial_dir
+            directions = ["north", "east", "south", "west"]
+            idx = directions.index(robot.direction)
+
+            if robot.rotating and robot.rotation_dir:
+                delta = 1 if robot.rotation_dir == "right" else -1
+                expected_dir = directions[(idx + delta) % 4]
+            else:
+                expected_dir = robot.direction
+
+            
             command_sets.append(CommandSet(str(agent.id), agent.get_final_path(), initial_dir=expected_dir))
 
 
@@ -233,7 +252,6 @@ def compute_cbs():
     try:
         payload = json.dumps({"commands": [cs.to_dict() for cs in command_sets]}, indent=2, ensure_ascii=False)
         print("!!!전송 예정 명령 세트:")
-        print("현재 시각:", datetime.now().strftime("%H:%M:%S.%f")[:-3])
         print(payload)
     except Exception as e:
         print(f"명령 세트 변환 중 오류 발생: {e}")
@@ -301,16 +319,6 @@ def on_robot_arrival(robot_id, pos):
 
     compute_cbs()
 
-def predict_robot_dir(robot):
-    directions = ["north", "east", "south", "west"]
-    idx = directions.index(robot.direction)
-
-    if robot.rotating and robot.rotation_dir and robot.rotation_steps:
-        sign = 1 if robot.rotation_dir == "right" else -1
-        delta = sign * robot.rotation_steps
-        return directions[(idx + delta) % 4]
-    return robot.direction
-
 def main():
     global agents, paths, grid_array, selected_robot_id, sim, delay_input_buffer, delay_input_mode, random_mode_enabled
     grid_array = load_grid(grid_row, grid_col)
@@ -319,7 +327,6 @@ def main():
 
     sim = Simulator(grid_array.astype(bool), colors=COLORS)
     sim.register_arrival_callback(on_robot_arrival)
-    sim.run_simulator(tick_interval=0.1)
 
     while True:
         vis = grid_visual(grid_array.copy())
@@ -331,6 +338,8 @@ def main():
                 x, y = int(pos[1] * cell_size), int(pos[0] * cell_size)
                 cv2.circle(vis, (x + cell_size//2, y + cell_size//2), 5, (0, 255, 0), -1)
                 cv2.putText(vis, f"S{agent.id}", (x + 2, y + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
+
+
 
         for agent in agents:
             if agent.goal:
@@ -344,14 +353,14 @@ def main():
             total_height=grid_array.shape[0] * cell_size,
             selected_robot_id=selected_robot_id,
             delay_input_mode=delay_input_mode,
-            delay_input_buffer= delay_input_buffer,
+            delay_input_buffer=delay_input_buffer,
             cell_size=cell_size
         )
 
         combined = cv2.hconcat([vis, agent_info_img])
         cv2.imshow("CBS Grid", combined)
         
-        sim.draw_frame()
+        sim.run_once()
         
         # 키보드 입력 처리
         key = cv2.waitKey(100)
@@ -384,8 +393,7 @@ def main():
                     delay_input_mode = True
                     delay_input_buffer = ""
 
-        if key == ord('q'): 
-            sim.stop()
+        if key == ord('q'):
             break
         elif key == ord('z'):
             print("Reset all")
@@ -417,6 +425,8 @@ def main():
         elif key == ord('r'):
             random_mode_enabled = not random_mode_enabled
             sim.random_mode_enabled = random_mode_enabled
+
+            
             
     cv2.destroyAllWindows()
 
