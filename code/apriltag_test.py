@@ -86,7 +86,7 @@ def main():
         if roi_box:
             x,y,w,h = roi_box
             roi      = proc[y:y+h, x:x+w]
-            proc_up  = preprocess_up(roi, scale=2)
+            proc_up  = preprocess_up(roi, scale=3)
 
             # AprilTag 검출 (업스케일 이미지에서)
             tags_up = detector.detect(proc_up)

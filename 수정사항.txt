@@ -35,3 +35,10 @@ CORRECTION_COEF = 0.89
 
 ##기타 수정 목록
 visionsystem.py, board.py
+
+7/31
+##config.py
+#CORRECTION_COEF 초기값 변경, 0.89로 설정하는 코드 지우고 아래 코드 삽입
+CAMERA_HEIGHT = 82
+ROBOT_HEIGHT = 9.1
+CORRECTION_COEF = (CAMERA_HEIGHT - ROBOT_HEIGHT) / CAMERA_HEIGHT

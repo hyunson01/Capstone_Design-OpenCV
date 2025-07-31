@@ -237,43 +237,33 @@ class VisionSystem:
         return X_prime, Y_prime
 
     def transform_coordinates(self, tag_infos: dict[int, dict]):
-        """
-        각 태그 픽셀 좌표를 H_metric으로 보드 평면의 cm 좌표로 투영한 뒤,
-        미리 생성된 cm 단위 grid cell 중심과의 유클리드 거리를 계산합니다.
-        """
-        # 보드가 lock 되어 있고, grid_reference가 준비되지 않았다면 건너뜀
         if not (self.board_result and self.board.is_locked and self.board_result.grid_reference):
             return
-
         ref = self.board_result.grid_reference
-        H = ref["H_metric"]             # metric homography
-        centers = ref["cell_centers"]    # [(cx_cm, cy_cm), ...] flat list
-
-        # 한 셀의 cm 크기
+        H = ref["H_metric"]
+        centers = ref["cell_centers"]
+        Cx = board_width_cm / 2
+        Cy = board_height_cm / 2
         cw = cell_size_cm
         ch = cell_size_cm
-
         for tag_id, data in tag_infos.items():
             cx_px, cy_px = data.get("center", (None, None))
             if cx_px is None or cy_px is None:
                 continue
-
-            # 픽셀 → (X_cm, Y_cm)
             pts = np.array([[[cx_px, cy_px]]], dtype=np.float32)
             X_cm, Y_cm = cv2.perspectiveTransform(pts, H)[0][0]
-
-            # grid index 계산 및 클램핑
-            col = int(X_cm // cw)
-            row = int(Y_cm // ch)
+            # --------- [보정값 동적으로 적용] ---------
+            X_corr, Y_corr = self.correct_tag_position_polar(X_cm, Y_cm, Cx, Cy)
+            data["corrected_center"] = (X_corr, Y_corr)
+            col = int(X_corr // cw)
+            row = int(Y_corr // ch)
             col = max(0, min(self.grid_col - 1, col))
             row = max(0, min(self.grid_row - 1, row))
             data["grid_position"] = (row, col)
-
-            # 실제 거리 계산
             idx = row * self.grid_col + col
             if idx < len(centers):
                 cx_cm, cy_cm = centers[idx]
-                data["dist_cm"] = math.hypot(X_cm - cx_cm, Y_cm - cy_cm)
+                data["dist_cm"] = math.hypot(X_corr - cx_cm, Y_corr - cy_cm)
             else:
                 data["dist_cm"] = None
 
