@@ -2,25 +2,33 @@ import sys
 import os
 import cv2
 import numpy as np
-import json
-import time
-
+import subprocess 
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 ICBS_PATH = os.path.join(CURRENT_DIR, '..', 'MAPF-ICBS', 'code')
 sys.path.append(os.path.normpath(ICBS_PATH))
 
-# code에서 필요한 모듈 임포트
+
 from grid import load_grid
 from interface import grid_visual, slider_create, slider_value, draw_agent_points, draw_paths
-from config import grid_row, grid_col, cell_size, camera_cfg, CORRECTION_COEF, NORTH_TAG_ID
-from vision.visionsystem import VisionSystem
-from vision.camera import camera_open, Undistorter
-from cbs.pathfinder import PathFinder
+from config import grid_row, grid_col, cell_size, camera_cfg, IP_address_, MQTT_TOPIC_COMMANDS_ , MQTT_PORT , NORTH_TAG_ID, CORRECTION_COEF
+
+from vision.visionsystem import VisionSystem 
+from vision.camera import camera_open, Undistorter 
 from cbs.agent import Agent
-from commandSendTest3 import CommandSet
-from DirectionCheck import compute_and_publish_errors
-import paho.mqtt.client as mqtt
+from cbs.pathfinder import PathFinder
+# from recieve_message import start_sequence,set_tag_info_provider
+from align import send_center_align, send_north_align # 중앙정렬, 북쪽정렬 함수
+
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+CTS_SCRIPT = os.path.join(SCRIPT_DIR, "command_transfer.py") #별도의 창으로 command_transfer 실행
+
+# 메인 로직이 실행되기 전에 커맨드 전송 스크립트를 백그라운드로 시작
+# sys.executable: 현재 사용 중인 파이썬 인터프리터 경로
+subprocess.Popen([sys.executable, CTS_SCRIPT],creationflags=subprocess.CREATE_NEW_CONSOLE)
+print(f"▶ command_transfer_encoderSelf.py 별도 콘솔에서 실행: {CTS_SCRIPT}")
+
 
 # 브로커 정보
 # main.py 상단에 USE_MQTT 정의
@@ -29,19 +37,15 @@ USE_MQTT = 0  # 0: 비사용, 1: 사용
 if USE_MQTT:
     import paho.mqtt.client as mqtt
 
-    # 브로커 정보
-    IP_address = "192.168.0.25"
-    MQTT_TOPIC_COMMANDS = "command/transfer"
-
     # 1) MQTT 클라이언트 생성
     client = mqtt.Client()
 
     # 2) 접속 (blocking call이 아니도록 loop_start 권장)
-    client.connect(IP_address, 1883, 60)
+    client.connect(IP_address_, MQTT_PORT, 60)
     client.loop_start()
 else:
     # Dummy 설정: publish 호출은 콘솔 출력으로 대체
-    MQTT_TOPIC_COMMANDS = None
+    MQTT_TOPIC_COMMANDS_ = None
 
     class _DummyClient:
         def publish(self, topic, payload):
@@ -63,7 +67,6 @@ cv2.createTrackbar(
 )
 correction_trackbar_callback(int(CORRECTION_COEF * 100))  # 초기화
 
-
 # 전역 변수
 agents = []
 paths = []
@@ -73,7 +76,6 @@ grid_array = None
 visualize = True
 # tag_info 전역 변수 초기화
 tag_info = {}
-
 
     # 비전 시스템 초기화
 video_path = r"C:/img/test2.mp4"
@@ -89,7 +91,8 @@ vision = VisionSystem(undistorter=undistorter, visualize=True)
 vision.correction_coef_getter = lambda: correction_coef_value
 
 # 사용할 ID 목록
-PRESET_IDS = [1,2,3,4]  # 예시: 1~12까지의 ID 사용
+#PRESET_IDS = [1,2,3,4]  # 예시: 1~12까지의 ID 사용
+PRESET_IDS = [1,3]
 
 # 마우스 콜백 함수
 def mouse_event(event, x, y, flags, param):
@@ -190,8 +193,11 @@ def mouse_event(event, x, y, flags, param):
 
         if ready_ids == target_ids:
             print(f"Agent {sorted(ready_ids)} 준비 완료. CBS 실행.")
-            compute_cbs()
+            pathfinder = compute_cbs(
+                agents, paths, pathfinder, grid_row, grid_col, tag_info, path_to_commands
+            )
 
+            
 # 태그를 통해 에이전트 업데이트
 def update_agents_from_tags(tag_info):        # cm → 셀 좌표
     for tag_id, data in tag_info.items():
@@ -214,186 +220,109 @@ def update_agents_from_tags(tag_info):        # cm → 셀 좌표
             )
 
 
+
 def path_to_commands(path, init_hd=0):
-        """
-        path: [(r0,c0), (r1,c1), ...] 그리드 좌표 리스트
-        init_hd: 초기 헤딩 (0=북,1=동,2=남,3=서)
-        반환: [{'command':'L90'|'R90'|'F10_modeA'|'F10_modeB'|'F10_modeC'}, ...]
-        """
-        cmds = []
-        hd = init_hd
+    """
+    path: [(r0,c0), (r1,c1), ...] 그리드 좌표 리스트
+    init_hd: 초기 헤딩 (0=북,1=동,2=남,3=서)
+    반환: [{'command':'L90'|'R90'|'T180'|'F10_modeA'}, ...]
+    """
+    cmds = []
+    hd = init_hd
 
-        forward_modes = ['F10_modeA', 'F10_modeB', 'F10_modeC']
+    for (r0, c0), (r1, c1) in zip(path, path[1:]):
+        # 1) 목표 방향 계산
+        if   r1 <  r0:
+            desired = 0  # 북
+        elif c1 >  c0:
+            desired = 1  # 동
+        elif r1 >  r0:
+            desired = 2  # 남
+        else:
+            desired = 3  # 서
 
-        for (r0, c0), (r1, c1) in zip(path, path[1:]):
-            # 1) 목표 방향 계산
-            if   r1 <  r0:
-                desired = 0  # 북
-            elif c1 >  c0:
-                desired = 1  # 동
-            elif r1 >  r0:
-                desired = 2  # 남
-            else:
-                desired = 3  # 서
+        # 2) 회전(diff) 처리 & 단일명령 생성
+        diff = (desired - hd) % 4
+        if   diff == 1:
+            cmds.append({'command': 'R90'})
+        elif diff == 2:
+            cmds.append({'command': 'T180'})
+        elif diff == 3:
+            cmds.append({'command': 'L90'})
+        else:  # diff == 0 → 순수 전진
+            cmds.append({'command': 'F15_modeA'})
 
-            # 2) 회전(diff) 처리
-            diff = (desired - hd) % 4
-            if diff == 1:
-                cmds.append({'command': 'R90'})
-            elif diff == 2:
-                cmds.extend([{'command': 'R90'}, {'command': 'R90'}])
-            elif diff == 3:
-                cmds.append({'command': 'L90'})
+        # 3) 헤딩 갱신
+        hd = desired
 
-            # 3) 전진 모드 선택 (diff에 따른 모드 지정)
-            if diff == 0:
-                # 순수 직진
-                cmds.append({'command': forward_modes[0]})
-            elif diff == 2:
-                # 180° 회전 후 직진
-                cmds.append({'command': forward_modes[2]})
-            else:
-                # 90° 회전(왼/오) 후 직진
-                cmds.append({'command': forward_modes[1]})
+    return cmds
 
-            # 4) 헤딩 갱신
-            hd = desired
-
-        return cmds
-    
-scheduled_tasks = []  # [(실행시각, 함수), ...]
-
-def schedule_task(func, delay):
-    """func을 delay(초) 뒤에 실행하도록 예약."""
-    execute_at = time.time() + delay
-    scheduled_tasks.append((execute_at, func))
-
-def process_scheduled_tasks():
-    """현재 시간이 지난 스케줄된 함수들을 실행."""
-    now = time.time()
-    for execute_at, func in scheduled_tasks[:]:
-        if now >= execute_at:
-            try:
-                func()
-            except Exception as e:
-                print(f"스케줄된 작업 중 오류: {e}")
-            scheduled_tasks.remove((execute_at, func))    
-
-#CBS 계산
 def compute_cbs():
-    import threading
     global paths, pathfinder, grid_array
 
-    # 1) 그리드 로드 및 PathFinder 초기화
     grid_array = load_grid(grid_row, grid_col)
     if pathfinder is None:
         pathfinder = PathFinder(grid_array)
 
-    # 2) 준비된 에이전트 추출
     ready_agents = [a for a in agents if a.start and a.goal]
     if not ready_agents:
         print("⚠️  start·goal이 모두 지정된 에이전트를 찾을 수 없습니다.")
         return
 
-    # 3) CBS 경로 계산
     solved_agents = pathfinder.compute_paths(ready_agents)
     new_paths = [agent.get_final_path() for agent in solved_agents]
     if not new_paths:
         print("No solution found.")
         return
 
-    # 4) 전역 paths 갱신
     paths.clear()
     paths.extend(new_paths)
     print("Paths updated via PathFinder.")
 
-    # 5) CBS 결과를 우리 로직으로 변환하여 직접 JSON 페이로드 생성 (즉시 publish는 하지 않음)
+    # 🔁 보정 없이 원본 명령만 생성
     payload_commands = []
     for agent in solved_agents:
         raw_path = agent.get_final_path()
-        init_hd = {'north':0,'east':1,'south':2,'west':3}.get(getattr(agent, 'direction','north'), 0)
-        cmds = path_to_commands(raw_path, init_hd)
+        hd = 0  # 초기 헤딩 (북쪽 기준)
+        cmds = path_to_commands(raw_path, hd)
+
+        basic_cmds = []
+        for cmd_obj in cmds:
+            cmd = cmd_obj["command"]
+            basic_cmds.append(cmd)
+
+            # 헤딩 업데이트 (기본 헤딩만 유지)
+            if cmd.startswith("R"):
+                hd = (hd + 1) % 4
+            elif cmd.startswith("L"):
+                hd = (hd - 1) % 4
+            elif cmd.startswith("T"):
+                hd = (hd + 2) % 4
+
         payload_commands.append({
-            "robot_id":      str(agent.id),
-            "command_count": len(cmds),
-            "command_set":   [{'command': c['command']} for c in cmds]
+            "robot_id": str(agent.id),
+            "command_count": len(basic_cmds),
+            "command_set": basic_cmds
         })
-    payload = {"commands": payload_commands}
-    print("전송 모듈 명령 세트:", json.dumps(payload, ensure_ascii=False))
 
-    # 6) 실제 MQTT 전송 함수 정의 (나중에 타이머로 호출)
-    def send_paths():
-        try:
-            client.publish(MQTT_TOPIC_COMMANDS, json.dumps(payload, ensure_ascii=False))
-            print("경로전송")
-        except Exception as e:
-            print(f"MQTT 전송 중 오류 발생: {e}")
+    # 전송용 딕셔너리
+    cmd_map = {
+        p["robot_id"]: p["command_set"]
+        for p in payload_commands
+    }
 
-    # 7) 타이머로 정렬 및 전송 순차 실행 (3초는 해야 북쪽정렬이 제대로 됨.)
-    schedule_task(send_auto_align,    0)  # t=0s: 중앙정렬
-    schedule_task(send_north_align,    3)  # t=2s: 북쪽정렬
-    schedule_task(send_north_align,    5)  # t=4s: 북쪽정렬
-    schedule_task(send_north_align,    7)  # t=6s: 북쪽정렬
-    schedule_task(send_paths,          9)  # t=8s: 경로 전송
-    # 도착 이후 재정렬은 수동으로. 
+    print("▶ 순차 전송 시작:", cmd_map)
+    # start_sequence(cmd_map)
 
+
+
+def send_emergency_stop(client):
+    print("!! Emergency Stop 명령 전송: 'S' to robots 1~4")
+    for rid in range(1, 5):
+        topic = f"robot/{rid}/cmd"
+        client.publish(topic, "S")
+        print(f"  → Published to {topic}")
     
-# 딜레이 적용
-def apply_start_delays(paths, starts, delays):
-    delayed_paths = []
-    for i, path in enumerate(paths):
-        delay = delays[i]
-        hold = [starts[i]] * delay
-        delayed_paths.append(hold + path)
-    return delayed_paths
-
-#그리드 중앙 정렬
-def send_auto_align():
-    for tag_id, data in tag_info.items():
-        if data.get('status') != 'On': continue
-        # 거리(cm)·상대 각도(°)
-        d  = data.get('dist_cm', 0.0)
-        ry = data.get('relative_angle_deg', 0.0)
-        # 회전·이동 명령 생성
-        rot_cmd = f"{'L' if ry<0 else 'R'}{abs(ry):.1f}"
-        mov_cmd = f"F{d:.1f}_modeC"
-        payload = {
-            "commands": [{
-                "robot_id":      str(tag_id),
-                "command_count": 2,
-                "command_set":   [
-                    {"command": rot_cmd},
-                    {"command": mov_cmd}
-                ]
-            }]
-        }
-        print("▶ Auto Alignment 명령 전송:", json.dumps(payload, ensure_ascii=False))
-        client.publish(MQTT_TOPIC_COMMANDS, json.dumps(payload, ensure_ascii=False))
-    
-
-#북쪽 정렬
-def send_north_align():
-    north = tag_info.get(NORTH_TAG_ID)
-    if north is None or north.get('status') != 'On':
-        print(f"   ✗ 북쪽 태그(ID={NORTH_TAG_ID}) 상태가 올바르지 않습니다.")
-        return
-    north_yaw = north['yaw']
-    for tag_id, data in tag_info.items():
-        if data.get('status') != 'On' or tag_id == NORTH_TAG_ID: continue
-        cur_yaw = data['yaw']
-        delta = ((cur_yaw - north_yaw + 180) % 360) - 180
-        cmd_letter = 'R' if delta > 0 else 'L'
-        cmd = f"{cmd_letter}{abs(delta):.1f}"
-        payload = {
-            "commands": [{
-                "robot_id":      str(tag_id),
-                "command_count": 1,
-                "command_set":   [{"command": cmd}]
-            }]
-        }
-        print(f"   • ID={tag_id}: Δ={delta:.1f}° → 명령={cmd}")
-        client.publish(MQTT_TOPIC_COMMANDS, json.dumps(payload, ensure_ascii=False))
-        
 
 
 def main():
@@ -414,15 +343,14 @@ def main():
     cv2.setMouseCallback("CBS Grid", mouse_event)
 
     while True:
-        process_scheduled_tasks()
-        auto_align     = False
-        dist_threshold = 0.5
+
         ret, frame = cap.read()
         if not ret:
             print("프레임 획득 실패")
             continue
 
         visionOutput = vision.process_frame(frame, detect_params)
+        # set_tag_info_provider(lambda: tag_info)
 
         if visionOutput is None:
             continue
@@ -467,6 +395,7 @@ def main():
             new_mode = 'contour' if vision.board_mode == 'tag' else 'tag'
             vision.set_board_mode(new_mode)
             print(f"Board mode switched to: {new_mode}")
+            
         elif key == ord('c'):
             if all(a.start and a.goal for a in agents):
                 compute_cbs()
@@ -481,14 +410,14 @@ def main():
         elif key == ord('v'):
             vision.toggle_visualization()
             print(f"시각화 모드: {'ON' if vision.visualize else 'OFF'}")
-        elif key == ord('p'):
-            compute_and_publish_errors(tag_info, agents)
         elif key == ord('s'):
             vision.start_roi_selection()
-        elif key == ord('x'):  #북쪽정렬 = x
-            send_north_align()
-        elif key == ord('a'):  #중앙정렬 = a
-            send_auto_align()
+        elif key == ord('x'):  # 북쪽정렬
+            send_north_align(client, tag_info, MQTT_TOPIC_COMMANDS_, NORTH_TAG_ID)
+        elif key == ord('a'):  # 중앙정렬
+            send_center_align(client, tag_info, MQTT_TOPIC_COMMANDS_)
+        elif key == ord('t'):  # 긴급정지
+            send_emergency_stop(client)
 
     cap.release()
     cv2.destroyAllWindows()

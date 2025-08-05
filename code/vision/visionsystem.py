@@ -2,11 +2,8 @@ import cv2
 import numpy as np
 import math
 from vision.apriltag import AprilTagDetector
-from config import board_width_cm, board_height_cm, grid_row, grid_col, cell_size, cell_size_cm, tag_size, CORRECTION_COEF
+from config import board_width_cm, board_height_cm, grid_row, grid_col, cell_size, cell_size_cm, tag_size, CORRECTION_COEF, NORTH_TAG_ID
 from vision.board import BoardDetectionResult, ROIProcessor
-
-NORTH_TAG_ID = 12
-
 
 class VisionSystem:
     def __init__(self, undistorter, visualize=True, board_mode='contour'):
@@ -20,7 +17,7 @@ class VisionSystem:
         self.last_valid_result = None
         self.board_result: BoardDetectionResult | None = None
         self.frame_count = 0
-        #self.roi_processor = ROIProcessor() 수동 rpi기능 제거
+        self.roi_processor = ROIProcessor()
         # 임시 ROI 설정
         self.roi_top_left = None
         self.roi_bottom_right = None
@@ -59,6 +56,7 @@ class VisionSystem:
             self.roi_bottom_right = (x0, y0)
             print(f"[ROI] Bottom-right set to: {self.roi_bottom_right}")
             self.selecting_roi = False
+
     def start_roi_selection(self):
         self.roi_top_left = None
         self.roi_bottom_right = None
@@ -83,7 +81,19 @@ class VisionSystem:
             bx, by, bw, bh = self.board_result.bounding_box
             x_min, y_min, x_max, y_max = bx, by, bx + bw, by + bh
         board_tag = self.tags.get_board_tag()
-        if board_tag is not None and "corners" in board_tag:
+        
+        roi_gray = None
+        rect_override = None
+
+        if self.roi_top_left and self.roi_bottom_right:
+            x1, y1 = self.roi_top_left
+            x2, y2 = self.roi_bottom_right
+            x_min, x_max = min(x1, x2), max(x1, x2)
+            y_min, y_max = min(y1, y2), max(y1, y2)
+            cropped = raw_gray[y_min:y_max, x_min:x_max]
+            roi_gray = self.roi_processor.process(cropped)
+            cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (255, 0, 0), 2)
+        elif board_tag is not None and "corners" in board_tag:
             tag_corners = np.array(board_tag["corners"], dtype=np.float32)
             # 태그 실측 길이(cm) 계산 (config.tag_size는 미터 단위)
             tag_len_cm = tag_size * 100.0
@@ -103,11 +113,12 @@ class VisionSystem:
             tag_up_unit  = (tag_corners[0] - tag_corners[3]) / (tag_right_len + 1e-8)
             roi_origin = tag_corners[3] - tag_right_unit * offset_px_right - tag_up_unit * offset_px_up
             x_min = int(roi_origin[0])
-            x_max = min(frame.shape[1], x_min + roi_w)
-            y_max = int(roi_origin[1])
-            y_min = max(0, y_max - roi_h)
+            x_max = min(frame.shape[1], x_min + roi_w)+200
+            y_max = int(roi_origin[1])+200
+            y_min = max(0, y_max - roi_h)-200
             # 빨간색 ROI 표시
-            cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (0,0,255), 2)
+            roi_gray = raw_gray[y_min:y_max, x_min:x_max]
+            cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (0, 0, 255), 2)
 
         roi_box = (x_min, y_min, x_max - x_min, y_max - y_min)
         filtered_gray = self.filter_roi(frame, roi_box, scale)
@@ -115,27 +126,30 @@ class VisionSystem:
         # --- ① AprilTag으로 자동 ROI 계산 및 빨간 테두리 그리기 ---
         raw_tags = self.tags.detect(filtered_gray)
         tags = self.correct_tag_coordinates(raw_tags, roi_box, scale)
-        self.tags.update(tags, self.frame_count, new_camera_matrix)        
-        rect_override = None
-        if board_tag is not None and "corners" in board_tag:
-            roi_gray = raw_gray[y_min:y_max, x_min:x_max]
+        self.tags.update(tags, self.frame_count, new_camera_matrix)
             
             # --- ② ROI 내에서 가장 큰 흰색 컨투어(4각형) 검출 ---
-            blur = cv2.GaussianBlur(roi_gray, (5,5), 0)
-            edges = cv2.Canny(blur, 60, 150)
-            contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            best_rect, best_area = None, 0
-            for cnt in contours:
-                approx = cv2.approxPolyDP(cnt, 0.04 * cv2.arcLength(cnt, True), True)
-                if len(approx) == 4 and cv2.isContourConvex(approx):
-                    area = cv2.contourArea(approx)
-                    if area > best_area:
-                        best_area, best_rect = area, approx
-            if best_rect is not None:
-                # ROI 좌표계를 전체 프레임 좌표계로 변환
-                best_rect = best_rect.reshape(4,2) + np.array([x_min, y_min])
-                rect_override = best_rect.reshape(4,1,2).astype(np.float32)
+        if roi_gray is not None:
+            if roi_gray.size == 0:
+                print(f"[ERROR] roi_gray is empty: shape={roi_gray.shape}")
+            else:
+                blur = cv2.GaussianBlur(roi_gray, (5, 5), 0)
+                edges = cv2.Canny(blur, 60, 150)
+                contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                best_rect, best_area = None, 0
 
+                for cnt in contours:
+                    approx = cv2.approxPolyDP(cnt, 0.04 * cv2.arcLength(cnt, True), True)
+                    if len(approx) == 4 and cv2.isContourConvex(approx):
+                        area = cv2.contourArea(approx)
+                        if area > best_area:
+                            best_area, best_rect = area, approx
+
+                if best_rect is not None:
+                    # ROI 좌표계를 전체 프레임 좌표계로 변환
+                    best_rect = best_rect.reshape(4, 2) + np.array([x_min, y_min])
+                    rect_override = best_rect.reshape(4, 1, 2).astype(np.float32)
+        
         # --- ③ 보드 검출: red-ROI 기반 rect_override 전달 ---
         self.board.process(raw_gray, detect_params, rect_override=rect_override)
         self.board_result = self.board.get_result()
@@ -237,43 +251,33 @@ class VisionSystem:
         return X_prime, Y_prime
 
     def transform_coordinates(self, tag_infos: dict[int, dict]):
-        """
-        각 태그 픽셀 좌표를 H_metric으로 보드 평면의 cm 좌표로 투영한 뒤,
-        미리 생성된 cm 단위 grid cell 중심과의 유클리드 거리를 계산합니다.
-        """
-        # 보드가 lock 되어 있고, grid_reference가 준비되지 않았다면 건너뜀
         if not (self.board_result and self.board.is_locked and self.board_result.grid_reference):
             return
-
         ref = self.board_result.grid_reference
-        H = ref["H_metric"]             # metric homography
-        centers = ref["cell_centers"]    # [(cx_cm, cy_cm), ...] flat list
-
-        # 한 셀의 cm 크기
+        H = ref["H_metric"]
+        centers = ref["cell_centers"]
+        Cx = board_width_cm / 2
+        Cy = board_height_cm / 2
         cw = cell_size_cm
         ch = cell_size_cm
-
         for tag_id, data in tag_infos.items():
             cx_px, cy_px = data.get("center", (None, None))
             if cx_px is None or cy_px is None:
                 continue
-
-            # 픽셀 → (X_cm, Y_cm)
             pts = np.array([[[cx_px, cy_px]]], dtype=np.float32)
             X_cm, Y_cm = cv2.perspectiveTransform(pts, H)[0][0]
-
-            # grid index 계산 및 클램핑
-            col = int(X_cm // cw)
-            row = int(Y_cm // ch)
+            # --------- [보정값 동적으로 적용] ---------
+            X_corr, Y_corr = self.correct_tag_position_polar(X_cm, Y_cm, Cx, Cy)
+            data["corrected_center"] = (X_corr, Y_corr)
+            col = int(X_corr // cw)
+            row = int(Y_corr // ch)
             col = max(0, min(self.grid_col - 1, col))
             row = max(0, min(self.grid_row - 1, row))
             data["grid_position"] = (row, col)
-
-            # 실제 거리 계산
             idx = row * self.grid_col + col
             if idx < len(centers):
                 cx_cm, cy_cm = centers[idx]
-                data["dist_cm"] = math.hypot(X_cm - cx_cm, Y_cm - cy_cm)
+                data["dist_cm"] = math.hypot(X_corr - cx_cm, Y_corr - cy_cm)
             else:
                 data["dist_cm"] = None
 
@@ -375,6 +379,49 @@ class VisionSystem:
                                         (corr_px_int[0] + 5, corr_px_int[1] + 50),
                                         cv2.FONT_HERSHEY_SIMPLEX,
                                         0.5, (0, 0, 255), 1)
+                            
+                                                # 북쪽 기준 yaw 차이 표시 (N: 각도)
+                        if NORTH_TAG_ID in tag_info:
+                            north = tag_info[NORTH_TAG_ID]
+                            if north.get("status") == "On":
+                                north_yaw_front = north.get("yaw_front_deg", None)
+                                cur_yaw_front   = data.get("yaw_front_deg", None)
+                                if north_yaw_front is not None and cur_yaw_front is not None:
+                                    delta_deg = ((cur_yaw_front - north_yaw_front + 180) % 360) - 180
+                                    text = f"N: {delta_deg:+.1f}°"
+                                    cv2.putText(frame, text,
+                                                (center[0] + 5, center[1] + 65),
+                                                cv2.FONT_HERSHEY_SIMPLEX,
+                                                0.5, (255, 255, 0), 1)
+                        
+
+                        # 오차 포함 헤딩 방향 표시 (e.g., E:+30.0° 또는 S:-15.5°)
+                        cur_yaw_front = data.get("yaw_front_deg", None)
+                        if cur_yaw_front is not None:
+                            yaw_deg = (cur_yaw_front + 360) % 360  # 0~360 정규화
+
+                            # 기준 방향 결정 (N/E/S/W)
+                            direction_names = ["N", "W", "S", "E"]
+                            direction_angles = [90, 0, 270, 180]  # 북=90°, 동=0°, 남=270°, 서=180°
+                            diffs = [abs(((yaw_deg - a + 180) % 360) - 180) for a in direction_angles]
+                            min_idx = diffs.index(min(diffs))
+                            base_dir = direction_names[min_idx]
+                            base_angle = direction_angles[min_idx]
+
+                            # 기준 방향 기준 오차 각도 (-180~180 → -45~+45)
+                            delta = ((yaw_deg - base_angle + 180) % 360) - 180
+                            data["heading_offset_deg"] = delta  # ← 오차를 저장!
+
+                            if delta < -45 or delta > 45:
+                                heading_str = f"{base_dir}:ERR"
+                            else:
+                                sign = "+" if delta >= 0 else "-"
+                                heading_str = f"{base_dir}:{sign}{abs(round(delta, 1)):.1f}"
+
+                            cv2.putText(frame, f"H: {heading_str}",
+                                        (center[0] + 5, center[1] + 80),
+                                        cv2.FONT_HERSHEY_SIMPLEX,
+                                        0.5, (0, 255, 255), 1)
 
     def filter_roi(self,
                 frame: np.ndarray,
@@ -404,6 +451,11 @@ class VisionSystem:
         x, y, w, h = roi_box
         # 1) ROI 크롭 및 업스케일
         roi = frame[y:y+h, x:x+w]
+        if roi is None or roi.size == 0 or roi.shape[0] == 0 or roi.shape[1] == 0:
+            print(f"[ERROR] Empty ROI in filter_roi. roi_box={roi_box}, frame.shape={frame.shape}")
+            return np.zeros((10, 10), dtype=np.uint8)
+
+
         upscaled = cv2.resize(roi, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
 
         # 2) 그레이 변환

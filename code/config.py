@@ -1,6 +1,16 @@
 import numpy as np
 import os
 
+# 브로커 정보
+#연구실 : 192.168.0.25
+IP_address_ = "192.168.0.25"
+MQTT_PORT      = 1883
+MQTT_TOPIC_COMMANDS_ = "command/transfer"
+
+NORTH_TAG_ID = 12  # 바닥에 고정된 북쪽 태그 겸 빨간 ROI생성 기준 태그
+
+
+
 # ===카메라 매개변수 (캘리브레이션된 값 사용)===
 # 선택할 카메라 ID
 CAMERA_ID = 4  # 1: 처음 쓴 카메라, 2: 교체형 - 소형 렌즈, 4: 교체형 - fisheye 렌즈
@@ -38,20 +48,18 @@ camera_cfg = CAMERA_SETTINGS[CAMERA_ID]
 
 #===카메라 매개변수 끝===
 
-
-CAMERA_HEIGHT = 37
-ROBOT_HEIGHT = 9.1
-CORRECTION_COEF = (CAMERA_HEIGHT - ROBOT_HEIGHT) / CAMERA_HEIGHT
+CAMERA_HEIGHT=147
+ROBOT_HEIGHT=9.1
+CORRECTION_COEF = (147-9.1)/147
 
 # 보드 크기 (cm 단위)
-board_width_cm = 60
-board_height_cm = 60
+board_width_cm = 90
+board_height_cm = 90
 
 # 태그 정보
-NORTH_TAG_ID = 12
-tag_size = 0.038  # 태그 크기 (단위: 미터)
+tag_size = 0.044  # 태그 크기 (단위: 미터)
 tag_role = {      # 태그 ID와 역할 매핑
-     NORTH_TAG_ID: "board",
+     NORTH_TAG_ID : "board",
 }
 object_points = np.array([
     [0, 0, 0],
@@ -65,7 +73,7 @@ object_points = np.array([
 ], dtype=np.float32)
 
 # 격자 배열 생성
-cell_size_cm = 10 # 격자 크기 (cm 단위)
+cell_size_cm = 15 # 격자 크기 (cm 단위)
 grid_row = int(board_height_cm / cell_size_cm) # 세로 행 수
 grid_col = int(board_width_cm / cell_size_cm) # 가로 열 수
 
@@ -94,3 +102,4 @@ MOTION_DURATIONS = {
     "Stop": 1.0,      # 대기
     "Rotate": 1.0,     # 우회전
 }
+

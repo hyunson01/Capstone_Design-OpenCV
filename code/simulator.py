@@ -1,11 +1,7 @@
 # simulator.py
 import cv2
 import numpy as np
-import time
-import math
 from fake_mqtt import FakeMQTTBroker
-import threading
-from datetime import datetime
 
 class Simulator:
     def __init__(self, map_array, colors, cell_size=50):
@@ -69,32 +65,92 @@ class Simulator:
             triangle_cnt = np.array([tip, left, right], np.int32)
             cv2.fillPoly(vis, [triangle_cnt], (0, 0, 0))  # 검은색 삼각형
 
+                   
+    # # 로봇 출발지, 도착지 그리기
+    # def draw_start_goal(self, vis):
+    #     overlay = vis.copy()
+    #     for robot_id, info in self.robot_info.items():
+    #         start = info.get('start')
+    #         goal = info.get('goal')
+    #         color = self.colors[robot_id % len(self.colors)]
+            
+    #         # 🟪 출발지 그리기 (네모)
+    #         if start:
+    #             top_left = (start[1] * self.cell_size + self.cell_size // 4,
+    #                         start[0] * self.cell_size + self.cell_size // 4)
+    #             bottom_right = (start[1] * self.cell_size + self.cell_size * 3 // 4,
+    #                             start[0] * self.cell_size + self.cell_size * 3 // 4)
+    #             cv2.rectangle(overlay, top_left, bottom_right, color, -1)
+
+    #         # 🔺 도착지 그리기 (삼각형)
+    #         if goal:
+    #             center_x = goal[1] * self.cell_size + self.cell_size // 2
+    #             center_y = goal[0] * self.cell_size + self.cell_size // 2
+    #             pts = np.array([
+    #                 (center_x, center_y - self.cell_size // 4),
+    #                 (center_x - self.cell_size // 4, center_y + self.cell_size // 4),
+    #                 (center_x + self.cell_size // 4, center_y + self.cell_size // 4)
+    #             ], np.int32)
+    #             cv2.fillPoly(overlay, [pts], color)
+                
+    #     # ✅ 반투명으로 합치기
+    #     cv2.addWeighted(overlay, 0.3, vis, 0.7, 0, vis)
+       
+    # 로봇 경로 그리기
+    # def draw_paths(self, vis):
+    #     overlay = vis.copy()
+    #     for robot_id, info in self.robot_info.items():
+    #         color = self.colors[robot_id % len(self.colors)]
+
+    #         past_path = self.robot_past_paths.get(robot_id, [])
+    #         current_path = info['path'] if info['path'] else []
+
+    #         # 🔥 경로 연결할 리스트
+    #         full_path = []
+
+    #         if past_path:
+    #             full_path.extend(past_path)
+
+    #         if current_path:
+    #             # 🔥 지나온 마지막 위치와 새로운 경로 첫 위치가 다르면, 연결 끊기
+    #             if not past_path or past_path[-1] == current_path[0]:
+    #                 full_path.extend(current_path)
+    #             else:
+    #                 print(f"Robot {robot_id}: Path discontinuity detected. Not connecting past and current paths.")
+    #                 # 지나온 경로 그린 다음, 새 경로는 따로 그린다.
+
+    #         # 🔥 경로 그리기
+    #         for i in range(1, len(full_path)):
+    #             p1 = (full_path[i-1][1] * self.cell_size + self.cell_size // 2, full_path[i-1][0] * self.cell_size + self.cell_size // 2)
+    #             p2 = (full_path[i][1] * self.cell_size + self.cell_size // 2, full_path[i][0] * self.cell_size + self.cell_size // 2)
+    #             cv2.line(overlay, p1, p2, color, thickness=3)
+
+    #     cv2.addWeighted(overlay, 0.3, vis, 0.7, 0, vis)
+
     # 한 프레임 그리기
-    def draw_frame(self):
+    def run_once(self):
         self.vis = self.create_grid()  # 배경(맵) 먼저 그림
+        
+        # self.draw_paths(self.vis)          # 경로 먼저 그리기
+        # self.draw_start_goal(self.vis)      # 출발지, 도착지 그리기
         self.draw_robots(self.vis)                  # 로봇(보간 이동) 그리기
+        
+        if not self.paused:
+            self.tick()  # 로봇 이동 처리 및 위치 기록
+        
         cv2.imshow("Simulator", self.vis)
+    
+    # 로봇 경로 보간
+    # def get_interpolated_position(self):
+    #     if not self.path or self.current_index >= len(self.path) - 1:
+    #         return self.path[-1]
 
-    def run_simulator(self, tick_interval=0.1):
-        self.tick_interval = tick_interval
-        def loop():
-            self.running = True
-            last_tick = time.time()
-
-            while self.running:
-                now = time.time()
-                if now - last_tick >= tick_interval:
-                    self.tick()
-                    last_tick = now
-                time.sleep(0.001)  # CPU 사용량 방지용 짧은 대기
-        self.thread = threading.Thread(target=loop, daemon=True)
-        self.thread.start()
-
-    def stop(self):
-        self.running = False
-        if hasattr(self, 'thread'):
-            self.thread.join(timeout=1.0)
-
+    #     current_pos = np.array(self.path[self.current_index])
+    #     next_pos = np.array(self.path[self.current_index + 1])
+    #     progress = self.substep / self.substeps_per_move
+    #     interp_pos = (1 - progress) * current_pos + progress * next_pos
+    #     return interp_pos
+    
     # 도착시 콜백 등록
     def register_arrival_callback(self, func):
         self.arrival_callback = func
@@ -102,7 +158,6 @@ class Simulator:
     # 로봇 한 틱 이동
     def tick(self):
         for robot in self.robots.values():
-            robot.tick_interval = self.tick_interval
             robot.tick()
             
             pos = tuple(map(int, robot.get_position()))
@@ -126,40 +181,34 @@ class Simulator:
             positions[robot.robot_id] = robot.get_position()
         return positions
 
-MOTION_DURATIONS = {
-        "Move": 1.0,     # 전진
-        "Stop": 1.0,      # 대기
-        "Rotate": 1.0,     # 회전
-    }
 
 class Robot:
     def __init__(self, robot_id, broker, start_pos, direction="north"):
         self.robot_id = robot_id
         self.broker = broker
-        self.next_move_extension = 0.0
+        
         self.position = start_pos  # (row, col)
-        self.current_deadline = None  # 현재 명령의 deadline
         
         # 이동 관련
         self.moving = False         # 현재 1칸 이동 중인지
             # 이동 보간
         self.start_pos = start_pos  # 보간 시작 좌표
         self.target_pos = start_pos # 보간 목표 좌표
-        self.move_progress = 0.0         # 0.0~1.0 보간 진행도
-        self.move_duration = MOTION_DURATIONS["Move"]           # 이동하는데 소요되는 초
-    
-            # 회전 관련
+        self.progress = 0.0         # 0.0~1.0 보간 진행도
+        self.speed = 0.1            # 1 tick당 이동 비율 (ex. 0.1 → 10 tick 동안 1칸 이동)
+        
+        # 회전 관련
         self.direction = direction  # 초기 방향
             # 회전 보간
         self.rotating = False       # 회전 중인지 여부
         self.rotation_progress = 0.0
-        self.rotation_duration = MOTION_DURATIONS["Rotate"]   # 회전하는데 소요되는 초
+        self.rotation_speed = 0.1   # 1 tick당 회전 비율 (ex. 0.1 → 10 tick 동안 90도 회전)
         self.rotation_dir = None      # "left" or "right"
 
         # 정지 관련
         self.stopping = False
         self.stop_progress = 0.0
-        self.stop_duration = MOTION_DURATIONS["Stop"]  # 정지 시간 (초)
+        self.stop_duration = 1.0  # 정지 시간 (초)
 
         self.current_command = None
         self.command_queue = []
@@ -170,34 +219,28 @@ class Robot:
     def set_path(self, path):
         self.path = path
         self.current_index = 0
-        self.move_progress = 0.0
+        self.progress = 0.0
 
     def on_receive_command(self, command_list):
-            parsed = []
+        if self.moving or self.current_command is not None:
+            print(f"[Robot {self.robot_id}] 이동 중 → 기존 명령 유지, queue 덮어쓰기")
+            self.command_queue = command_list  # ✅ 리스트 그대로 받음
+        else:
+            print(f"[Robot {self.robot_id}] 정지 상태 → 명령 즉시 실행")
+            self.current_command = command_list.pop(0) if command_list else None
+            self.command_queue = command_list
 
-            for raw in command_list:
-                # 문자열 또는 dict 둘 다 처리
-                s = raw.get("command", raw) if isinstance(raw, dict) else raw
-                parts = s.split("@")
-                cmd = parts[0]
-                deadline = None
-
-                if len(parts) > 1 and parts[1]:
-                    # HHMMSSmmm → 오늘 날짜의 timestamp
-                    dt = datetime.strptime(parts[1], "%H%M%S%f")
-                    today = datetime.now()
-                    dt = dt.replace(year=today.year,
-                                    month=today.month,
-                                    day=today.day)
-                    deadline = dt.timestamp()
-
-                parsed.append((cmd, deadline))
-
-                if self.moving or self.rotating or self.current_command is not None:
-                    self.command_queue = parsed
-                else:
-                    self.current_command = parsed.pop(0) if parsed else (None, None)
-                    self.command_queue = parsed
+    # def execute_command(self, command):
+    #     if command == "forward":
+    #         self.move_forward()
+    #     elif command == "left":
+    #         self.turn_left()
+    #     elif command == "right":
+    #         self.turn_right()
+    #     elif command == "stop":
+    #         print(f"[Robot {self.robot_id}] 정지.")
+    #     else:
+    #         print(f"[Robot {self.robot_id}] 알 수 없는 명령: {command}")
             
     def parse_compressed_command(self, compressed_command):
         result = []
@@ -227,7 +270,7 @@ class Robot:
         
         self.start_pos = self.position
         self.target_pos = next_pos
-        self.move_progress = 0.0
+        self.progress = 0.0
         self.moving = True
         # print(f"[Robot {self.robot_id}] 앞으로 이동 준비: {self.start_pos} -> {self.target_pos}")
 
@@ -241,37 +284,34 @@ class Robot:
         
     def tick(self):
         if self.stopping:
-            self.stop_progress += self.tick_interval
-            if self.stop_progress >= self.stop_duration:
+            self.stop_progress += self.speed
+            if self.stop_progress >= 1.0:
                 self.stopping = False
                 self.stop_progress = 0.0
             return
 
         if self.moving:
-            self.move_progress += self.tick_interval
-            if self.move_progress >= self.move_duration:
-                self.move_progress = 1.0
+            self.progress += self.speed
+            if self.progress >= 1.0:
+                self.progress = 1.0
                 self.position = self.target_pos
                 self.moving = False
-            return
 
-        if self.rotating:
-            self.rotation_progress += self.tick_interval
-            if self.rotation_progress >= self.rotation_duration:
+        elif self.rotating:
+            self.rotation_progress += self.rotation_speed
+            if self.rotation_progress >= 1.0:
+                self.rotation_progress = 1.0
                 self.rotating = False
-                self.direction = self.target_direction
 
-                if self.current_deadline is None:
-                    raise RuntimeError(f"[Robot {self.robot_id}] deadline이 설정되지 않아 전진을 수행할 수 없습니다.")
-                remaining = self.current_deadline - time.time()
-                if remaining <= 0:
-                    raise TimeoutError(f"[Robot {self.robot_id}] 전진을 위한 남은 시간이 없습니다: deadline 경과, 현재 시각 {time.time()}, deadline {self.current_deadline}")
-                
-                self.move_duration = remaining
-                self.move_progress = 0.0
-                self.move_forward()
-                return
-            
+                # 회전 완료 → 방향 갱신
+                directions = ["north", "east", "south", "west"]
+                idx = directions.index(self.direction)
+                if self.rotation_dir == "left":
+                    self.direction = directions[(idx - 1) % 4]
+                elif self.rotation_dir == "right":
+                    self.direction = directions[(idx + 1) % 4]
+                self.rotation_dir = None
+
         else:
             if self.current_command is None and self.command_queue:
                 self.current_command = self.command_queue.pop(0)
@@ -285,106 +325,68 @@ class Robot:
         if self.moving:
             current = np.array(self.start_pos)
             target = np.array(self.target_pos)
-            ratio = min(self.move_progress / self.move_duration, 1.0)  # 비율 보정
-            return (1 - ratio) * current + ratio * target
+            return (1 - self.progress) * current + self.progress * target
         else:
             return self.position
-
         
     # 로봇 방향 반환
     def get_direction(self):
-        # 1) 각도 매핑 (라디안)
-        angles = {
-            "north":  math.pi/2,
-            "east":    0,
-            "south": -math.pi/2,
-            "west":   math.pi
-        }
-
-        # 회전 중이면 시작→종료 각도 보간
-        if self.rotating:
-            # 현재 t (0→1)
-            t = min(self.rotation_progress / self.rotation_duration, 1.0)
-
-            # 시작/목표 인덱스
-            dirs = ["north", "east", "south", "west"]
-            start_idx = dirs.index(self.direction)
-            delta = self.rotation_steps if self.rotation_dir=="right" else -self.rotation_steps
-            target_idx = (start_idx + delta) % 4
-
-            # 시작/끝 각도
-            start_ang = angles[dirs[start_idx]]
-            end_ang   = angles[dirs[target_idx]]
-
-            # 시계/반시계 회전을 올바르게 보간
-            diff = end_ang - start_ang
-            # 두 방향이 반대(±π)일 때, shortest path 선택
-            if abs(diff) > math.pi:
-                diff -= math.copysign(2*math.pi, diff)
-            ang = start_ang + t * diff
-
-            # 최종 방향 벡터 (화살표는 y축 반전 기준)
-            dx = math.cos(ang)
-            dy = -math.sin(ang)
-            return (dx, dy)
-
-        # 회전 중이 아니면 정방향 벡터
         dir_vecs = {
             "north": (0, -1),
-            "east":  (1,  0),
-            "south": (0,  1),
+            "east":  (1, 0),
+            "south": (0, 1),
             "west":  (-1, 0)
         }
-        return dir_vecs[self.direction]
+        directions = ["north", "east", "south", "west"]
+        idx = directions.index(self.direction)
+
+        # 회전 중이면 다음 방향으로 보간
+        if self.rotating and self.rotation_dir:
+            if self.rotation_dir == "left":
+                target_idx = (idx - 1) % 4
+            else:  # "right"
+                target_idx = (idx + 1) % 4
+
+            cur_vec = np.array(dir_vecs[directions[idx]])
+            next_vec = np.array(dir_vecs[directions[target_idx]])
+            t = self.rotation_progress  # 0~1
+
+            # 벡터를 선형 보간 (단순하고 충분)
+            vec = (1 - t) * cur_vec + t * next_vec
+            norm = np.linalg.norm(vec)
+            return vec / norm if norm != 0 else vec
+
+        else:
+            return np.array(dir_vecs[self.direction])
+
 
 
     def execute_command(self, command):
-        """
-        command: (cmd_str, deadline) 형태만 허용.
-        deadline 이 None 이면 호출 자체가 불가능하므로,
-        항상 (cmd_str, deadline) 튜플로 들어옵니다.
-        """
-        cmd_str, deadline = command
-        self.current_deadline = deadline
+        if command.startswith("D"):
+            dist = int(command[1:])
+            if dist == 0:
+                self.stopping = True
+                self.stop_progress = 0.0
+            else:
+                steps = dist // 10
+                if steps > 1:
+                    # 앞으로 추가할 명령은 큐에 역순으로 삽입해야 FIFO 순서 유지됨
+                    for _ in range(steps - 1):
+                        self.command_queue.insert(0, "D10")
+                self.move_forward()
 
-        # deadline 확인 (안정장치)
-        if deadline is None:
-            raise RuntimeError(f"[Robot {self.robot_id}] deadline이 없어 명령을 실행할 수 없습니다: {cmd_str}")
+        elif command.startswith("R"):
+            angle = int(command[1:])
+            if angle == 90:
+                self.turn("right")
+            elif angle == -90:
+                self.turn("left")
+            elif abs(angle) == 180:
+                self.turn("right")
+                self.command_queue.insert(0, "R90")  # R180은 R90 x2로 분해
+            else:
+                print(f"[Robot {self.robot_id}] 알 수 없는 회전 각도: {angle}")
 
-        # T-extension 은 그대로 처리
-        if cmd_str.startswith("T"):
-            self.next_move_extension = float(cmd_str[1:])
-            return
+        else:
+            print(f"[Robot {self.robot_id}] 알 수 없는 명령어: {command}")
 
-        # 이동 명령 Dxx
-        if cmd_str.startswith("D"):
-            self.move_forward()
-            # 남은 시간(초)만큼만 움직이도록
-            remain = deadline - time.time()
-            if remain <= 0:
-                raise TimeoutError(f"[Robot {self.robot_id}] 이동 deadline 경과: {cmd_str}")
-            self.move_duration = remain
-            self.move_progress = 0.0
-            self.next_move_extension = 0.0
-            return
-
-        # 회전 명령 Rxx
-        if cmd_str.startswith("R"):
-            from math import copysign
-            directions = ["north", "east", "south", "west"]
-            angle = int(cmd_str[1:])
-            steps = abs(angle) // 90
-            self.rotation_steps = steps
-            self.target_direction = directions[
-                (directions.index(self.direction) + int(copysign(1, angle)) * steps) % 4
-            ]
-            remain = deadline - time.time()
-            if remain <= 0:
-                raise TimeoutError(f"[Robot {self.robot_id}] 회전 deadline 경과: {cmd_str}")
-            self.rotation_duration = MOTION_DURATIONS["Rotate"] * steps
-            self.rotation_progress = 0.0
-            self.rotating = True
-            return
-
-        # 그 외 모든 명령에 대해 deadline 필수
-        raise NotImplementedError(f"[Robot {self.robot_id}] 지원하지 않는 명령이거나 deadline이 잘못됨: {cmd_str}")
