@@ -53,8 +53,8 @@ ROBOT_HEIGHT=9.1
 CORRECTION_COEF = (147-9.1)/147
 
 # 보드 크기 (cm 단위)
-board_width_cm = 90
-board_height_cm = 90
+board_width_cm = 60
+board_height_cm = 60
 
 # 태그 정보
 tag_size = 0.044  # 태그 크기 (단위: 미터)

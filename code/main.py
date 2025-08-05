@@ -391,10 +391,6 @@ def main():
             print("Reset all")
             agents.clear()
             paths.clear()
-        elif key == ord('m'):
-            new_mode = 'contour' if vision.board_mode == 'tag' else 'tag'
-            vision.set_board_mode(new_mode)
-            print(f"Board mode switched to: {new_mode}")
             
         elif key == ord('c'):
             if all(a.start and a.goal for a in agents):

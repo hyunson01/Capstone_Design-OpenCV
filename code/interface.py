@@ -19,13 +19,19 @@ def slider_create():
     cv2.createTrackbar("Brightness Threshold", "Sliders", 120, 255, trackbar)
     cv2.createTrackbar("Min W/H Ratio", "Sliders", int(min_ratio * 10), 20, trackbar)
     cv2.createTrackbar("Max W/H Ratio", "Sliders", int(max_ratio * 10), 20, trackbar)
+    cv2.createTrackbar("Angle(cos)", "Sliders", 50, 100, trackbar)
+    cv2.createTrackbar("extent", "Sliders", 50, 100, trackbar)
+    cv2.createTrackbar("solidity", "Sliders", 60, 100, trackbar)
 
 
 def slider_value():
     brightness_threshold = cv2.getTrackbarPos("Brightness Threshold", "Sliders")
     min_aspect_ratio = cv2.getTrackbarPos("Min W/H Ratio", "Sliders") / 10.0
     max_aspect_ratio = cv2.getTrackbarPos("Max W/H Ratio", "Sliders") / 10.0
-    return brightness_threshold, min_aspect_ratio, max_aspect_ratio
+    cos_th    = cv2.getTrackbarPos("Angle(cos)", "Sliders")  / 100.0
+    extent_th = cv2.getTrackbarPos("extent", "Sliders")      / 100.0
+    solid_th  = cv2.getTrackbarPos("solidity", "Sliders")    / 100.0
+    return brightness_threshold, min_aspect_ratio, max_aspect_ratio, cos_th, extent_th, solid_th
 
 # 그리드 그리기
 def grid_visual(grid_array):

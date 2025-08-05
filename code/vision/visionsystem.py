@@ -1,164 +1,113 @@
 import cv2
 import numpy as np
 import math
+from typing import Optional, Tuple, Dict
+
 from vision.apriltag import AprilTagDetector
 from config import board_width_cm, board_height_cm, grid_row, grid_col, cell_size, cell_size_cm, tag_size, CORRECTION_COEF, NORTH_TAG_ID
-from vision.board import BoardDetectionResult, ROIProcessor
+from vision.board import BoardDetectionResult, BoardDetector
 
 class VisionSystem:
-    def __init__(self, undistorter, visualize=True, board_mode='contour'):
+    def __init__(self, undistorter, visualize=True):
         
         self.tags = AprilTagDetector()
         self.visualize = visualize
         self.grid_row = grid_row
         self.grid_col = grid_col
-        self.board_mode = board_mode
         self.undistorter = undistorter
         self.last_valid_result = None
+        self.board = BoardDetector(board_width_cm, board_height_cm, grid_row, grid_col)
         self.board_result: BoardDetectionResult | None = None
         self.frame_count = 0
-        self.roi_processor = ROIProcessor()
-        # 임시 ROI 설정
-        self.roi_top_left = None
-        self.roi_bottom_right = None
-        self.selecting_roi = False
+        self.roi_filter = ROIFilter()
+        
+        # 수동 ROI 설정
+        self.manual_roi_top_left = None
+        self.manual_roi_bottom_right = None
+        self.user_selecting_roi = False
 
-        #화면 해상도 설정
-        self.raw_shape = None
+        # 화면 해상도 설정
+        self.frame_shape = None
         self.target_display_size = (960, 540)
         self.display_size = None
 
         self.correction_coef_getter = lambda: CORRECTION_COEF
 
-        self._init_board_detector()
-
-    def _init_board_detector(self):
-        if self.board_mode == 'contour':
-            from vision.board import BoardDetector
-            self.board = BoardDetector(board_width_cm, board_height_cm, grid_row, grid_col)
-        elif self.board_mode == 'tag':
-            from vision.board_tag import TagBoardDetector
-            self.board = TagBoardDetector(board_width_cm, board_height_cm, grid_row, grid_col)
+    # =====수동 ROI 선택===== 
+    
+    def start_roi_selection(self):
+        self.manual_roi_top_left = None
+        self.manual_roi_bottom_right = None
+        self.user_selecting_roi = True
+        print("[ROI] Selection mode enabled. Click top-left and bottom-right.")
 
     def mouse_callback(self, event, x, y, flags, param):
-        if not (self.selecting_roi and event == cv2.EVENT_LBUTTONDOWN and self.display_size and self.raw_shape):
+        if not (self.user_selecting_roi and event == cv2.EVENT_LBUTTONDOWN and self.display_size and self.frame_shape):
             return
-
-        # 표시 크기로 받은 x,y → 원본 좌표로 변환
         x0, y0 = (x, y)
         if self.display_size:
             x0, y0 = self.to_original_coords(x, y)
 
-        if self.roi_top_left is None:
-            self.roi_top_left = (x0, y0)
-            print(f"[ROI] Top-left set to: {self.roi_top_left}")
+        if self.manual_roi_top_left is None:
+            self.manual_roi_top_left = (x0, y0)
+            print(f"[ROI] Top-left set to: {self.manual_roi_top_left}")
         else:
-            self.roi_bottom_right = (x0, y0)
-            print(f"[ROI] Bottom-right set to: {self.roi_bottom_right}")
-            self.selecting_roi = False
-
-    def start_roi_selection(self):
-        self.roi_top_left = None
-        self.roi_bottom_right = None
-        self.selecting_roi = True
-        print("[ROI] Selection mode enabled. Click top-left and bottom-right.")
-
-
-    def set_board_mode(self, new_mode):
-        self.board_mode = new_mode
-        self._init_board_detector()
+            self.manual_roi_bottom_right = (x0, y0)
+            print(f"[ROI] Bottom-right set to: {self.manual_roi_bottom_right}")
+            self.user_selecting_roi = False
+    
+    # ===== 수동 ROI 선택 끝 =====
         
-    # 프레임 처리
+    # ===== 프레임 처리 =====
     def process_frame(self, raw_frame, detect_params=None, scale=2):
-        self.raw_shape = raw_frame.shape[:2]
-        frame, new_camera_matrix = self.undistorter.undistort(raw_frame)
-        raw_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        self.frame_count += 1
-        h, w = frame.shape[:2]
-
-        x_min, y_min, x_max, y_max = 0, 0, w, h
-        if self.board_result and hasattr(self.board_result, 'bounding_box'):
-            bx, by, bw, bh = self.board_result.bounding_box
-            x_min, y_min, x_max, y_max = bx, by, bx + bw, by + bh
-        board_tag = self.tags.get_board_tag()
         
-        roi_gray = None
+        # 1) 기본 프레임 전처리 및 회색조
+        frame, new_camera_matrix = self.undistorter.undistort(raw_frame)
+        self.frame_shape = frame.shape[:2]
+        self.frame_count += 1
+        raw_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
         rect_override = None
 
-        if self.roi_top_left and self.roi_bottom_right:
-            x1, y1 = self.roi_top_left
-            x2, y2 = self.roi_bottom_right
-            x_min, x_max = min(x1, x2), max(x1, x2)
-            y_min, y_max = min(y1, y2), max(y1, y2)
-            cropped = raw_gray[y_min:y_max, x_min:x_max]
-            roi_gray = self.roi_processor.process(cropped)
-            cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (255, 0, 0), 2)
-        elif board_tag is not None and "corners" in board_tag:
-            tag_corners = np.array(board_tag["corners"], dtype=np.float32)
-            # 태그 실측 길이(cm) 계산 (config.tag_size는 미터 단위)
-            tag_len_cm = tag_size * 100.0
-            # 태그 픽셀 길이 계산
-            tag_right_len = np.linalg.norm(tag_corners[0] - tag_corners[1])
-            tag_up_len    = np.linalg.norm(tag_corners[0] - tag_corners[3])
-            px_per_cm_right = tag_right_len / tag_len_cm
-            px_per_cm_up    = tag_up_len    / tag_len_cm
-            # ROI 크기 (보드 크기 + 18% 마진)
-            roi_w = int(px_per_cm_right * board_width_cm  * 1.18)
-            roi_h = int(px_per_cm_up    * board_height_cm * 1.18)
-            # 5cm 만큼 추가 마진
-            offset_px_right = px_per_cm_right * 5
-            offset_px_up    = px_per_cm_up    * 5
-            # ROI 원점 계산
-            tag_right_unit = (tag_corners[2] - tag_corners[3]) / (tag_right_len + 1e-8)
-            tag_up_unit  = (tag_corners[0] - tag_corners[3]) / (tag_right_len + 1e-8)
-            roi_origin = tag_corners[3] - tag_right_unit * offset_px_right - tag_up_unit * offset_px_up
-            x_min = int(roi_origin[0])
-            x_max = min(frame.shape[1], x_min + roi_w)+200
-            y_max = int(roi_origin[1])+200
-            y_min = max(0, y_max - roi_h)-200
-            # 빨간색 ROI 표시
-            roi_gray = raw_gray[y_min:y_max, x_min:x_max]
-            cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (0, 0, 255), 2)
+        # 2) ROI 영역 설정
+        board_tag = self.tags.get_board_tag()
 
-        roi_box = (x_min, y_min, x_max - x_min, y_max - y_min)
-        filtered_gray = self.filter_roi(frame, roi_box, scale)
+        roi_frame, (roi_x_min, roi_y_min, roi_x_max, roi_y_max) = self._compute_roi(
+            raw_gray=raw_gray,
+            frame_shape=frame.shape,
+            board=self.board,
+            board_result=self.board_result,
+            manual_tl=self.manual_roi_top_left,
+            manual_br=self.manual_roi_bottom_right,
+            board_tag=board_tag,
+        )
 
-        # --- ① AprilTag으로 자동 ROI 계산 및 빨간 테두리 그리기 ---
-        raw_tags = self.tags.detect(filtered_gray)
-        tags = self.correct_tag_coordinates(raw_tags, roi_box, scale)
+        # 3) 태그 탐지
+        # ROI에 태그 탐지 필터링
+        tag_filtered_frame = self.roi_filter.enhance(roi_frame)
+
+        # 태그 필터 프레임에서 태그 탐지
+        raw_tags = self.tags.detect(tag_filtered_frame)
+        tags = self.correct_tag_coordinates(raw_tags, (roi_x_min, roi_y_min, roi_x_max - roi_x_min, roi_y_max - roi_y_min), scale)
         self.tags.update(tags, self.frame_count, new_camera_matrix)
             
-            # --- ② ROI 내에서 가장 큰 흰색 컨투어(4각형) 검출 ---
-        if roi_gray is not None:
-            if roi_gray.size == 0:
-                print(f"[ERROR] roi_gray is empty: shape={roi_gray.shape}")
-            else:
-                blur = cv2.GaussianBlur(roi_gray, (5, 5), 0)
-                edges = cv2.Canny(blur, 60, 150)
-                contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                best_rect, best_area = None, 0
-
-                for cnt in contours:
-                    approx = cv2.approxPolyDP(cnt, 0.04 * cv2.arcLength(cnt, True), True)
-                    if len(approx) == 4 and cv2.isContourConvex(approx):
-                        area = cv2.contourArea(approx)
-                        if area > best_area:
-                            best_area, best_rect = area, approx
-
-                if best_rect is not None:
-                    # ROI 좌표계를 전체 프레임 좌표계로 변환
-                    best_rect = best_rect.reshape(4, 2) + np.array([x_min, y_min])
-                    rect_override = best_rect.reshape(4, 1, 2).astype(np.float32)
-        
-        # --- ③ 보드 검출: red-ROI 기반 rect_override 전달 ---
-        self.board.process(raw_gray, detect_params, rect_override=rect_override)
+        # 4) ROI 내에서 보드 검출
+        board_filtered_frame = self.roi_filter.binarize(roi_frame)
+        board_corners = self.board.detect(board_filtered_frame, detect_params)
+        if board_corners is not None:
+            # ROI 성공 → override 좌표로 풀프레임 검출
+            rect_full = board_corners.copy()
+            rect_full[:,0,0] += roi_x_min
+            rect_full[:,0,1] += roi_y_min
+            self.board.process(raw_gray, detect_params, rect_override=rect_full)
+        else:
+            # ROI 실패 → 순수 풀프레임 검출
+            self.board.process(raw_gray, detect_params, rect_override=None)
         self.board_result = self.board.get_result()
                 
-        # 2. 태그 탐지 및 처리
+        # 5) 보드를 이용해 태그 처리 및 업데이트
         if self.board_result:
-            self.tags.update_and_process(tags, self.frame_count, self.board_result.origin, self.board_result.cm_per_px, new_camera_matrix)
-        else:
-            self.tags.update(tags, self.frame_count, new_camera_matrix)
+            self.tags.process(self.board_result.origin, self.board_result.cm_per_px)
 
         tag_info = self.tags.get_raw_tags()
         if self.board_result:
@@ -178,21 +127,20 @@ class VisionSystem:
                 # 태그 정보에 추가 저장
                 data['yaw_to_north_rad'] = delta
                 data['yaw_to_north_deg'] = math.degrees(delta)
-        
-        
 
-        # 3. 시각화 처리
+        # 6) 시각화 처리
         if self.visualize:
+            cv2.rectangle(frame, (roi_x_min, roi_y_min), (roi_x_max, roi_y_max), (0, 0, 255), 2)
             self.board.draw(frame, self.board_result)
             self.tags.draw(frame)
             self.draw_tag_overlay(frame, tag_info)
 
-        if self.roi_top_left and self.roi_bottom_right:
-            roi_display = roi_gray.copy()
+        if self.manual_roi_top_left and self.manual_roi_bottom_right:
+            roi_display = roi_frame.copy()
             roi_display = cv2.resize(roi_display, (min(roi_display.shape[1]*2, 800), min(roi_display.shape[0]*2, 800)))
             cv2.imshow("ROI_Display", roi_display)
 
-
+        # 7) 기타
         disp_w, disp_h = self.target_display_size
         display_frame = cv2.resize(frame, (disp_w, disp_h))
         self.display_size = (disp_w, disp_h)
@@ -210,9 +158,9 @@ class VisionSystem:
 
     def correct_tag_coordinates(self,
                                 tags: list,
-                                roi_box: tuple[int, int, int, int],
+                                roi_range: tuple[int, int, int, int],
                                 scale: float = 2) -> list:
-        x0, y0, _, _ = roi_box
+        x0, y0, _, _ = roi_range
         for tag in tags:
             tag.center = tag.center / scale + np.array([x0, y0])
             tag.corners = tag.corners / scale + np.array([x0, y0])
@@ -319,7 +267,7 @@ class VisionSystem:
             data["relative_angle_deg"] = ((yaw_dir - yaw_front + 180) % 360) - 180
 
     def to_original_coords(self, x, y):
-            orig_h, orig_w = self.raw_shape
+            orig_h, orig_w = self.frame_shape
             disp_w, disp_h = self.display_size
             orig_x = int(x * orig_w / disp_w)
             orig_y = int(y * orig_h / disp_h)
@@ -422,61 +370,177 @@ class VisionSystem:
                                         (center[0] + 5, center[1] + 80),
                                         cv2.FONT_HERSHEY_SIMPLEX,
                                         0.5, (0, 255, 255), 1)
-
-    def filter_roi(self,
-                frame: np.ndarray,
-                roi_box: tuple[int, int, int, int],
-                scale: int = 2,
-                unsharp_ksize=(9, 9),
-                unsharp_sigma=10,
-                clahe_clip=3.0,
-                clahe_grid=(8, 8),
-                bilateral_d=9,
-                bilateral_sigma_color=75,
-                bilateral_sigma_space=75) -> np.ndarray:
+    
+    def _compute_roi(
+        self,
+        raw_gray: np.ndarray,
+        frame_shape: Tuple[int, int, int],
+        board,
+        board_result,
+        manual_tl: Optional[Tuple[int,int]],
+        manual_br: Optional[Tuple[int,int]],
+        board_tag: Optional[Dict],
+    ) -> Tuple[np.ndarray, Tuple[int,int,int,int]]:
         """
-        frame: BGR 컬러 프레임
-        roi_box: (x, y, w, h) 포맷의 ROI 좌표
-        scale: ROI 업스케일 배율
-
-        ROI 영역에 대해 다음 필터 체인을 단일 함수로 적용합니다:
-        1) 크롭 & 업스케일
-        2) BGR->GRAY
-        3) 언샤프 마스크
-        4) CLAHE
-        5) 양방향 필터
-
-        반환: 필터 적용된 그레이스케일 ROI 이미지
+        우선순위:
+        1) board.is_locked
+        2) 수동 ROI
+        3) Tag 기반 ROI
+        4) 전체 화면
         """
-        x, y, w, h = roi_box
-        # 1) ROI 크롭 및 업스케일
-        roi = frame[y:y+h, x:x+w]
-        if roi is None or roi.size == 0 or roi.shape[0] == 0 or roi.shape[1] == 0:
-            print(f"[ERROR] Empty ROI in filter_roi. roi_box={roi_box}, frame.shape={frame.shape}")
-            return np.zeros((10, 10), dtype=np.uint8)
+        h, w = frame_shape[:2]
 
+        # 1순위. lock된 보드
+        if board.is_locked and board_result is not None:
+            corners = board_result.corners
+            xs = corners[:, 0].astype(int)
+            ys = corners[:, 1].astype(int)
+            x_min, x_max = xs.min(), xs.max()
+            y_min, y_max = ys.min(), ys.max()
 
-        upscaled = cv2.resize(roi, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+        # 2순위. 수동 ROI 선택
+        elif manual_tl and manual_br:
+            x1, y1 = manual_tl
+            x2, y2 = manual_br
+            x_min, x_max = min(x1, x2), max(x1, x2)
+            y_min, y_max = min(y1, y2), max(y1, y2)
 
-        # 2) 그레이 변환
-        gray = cv2.cvtColor(upscaled, cv2.COLOR_BGR2GRAY)
+        # 3순위. 보드 태그가 검출된 경우
+        elif board_tag is not None and "corners" in board_tag:
+            tag_corners = np.array(board_tag["corners"], dtype=np.float32)
+            tag_len_cm = tag_size * 100.0
+            tag_right_len = np.linalg.norm(tag_corners[0] - tag_corners[1])
+            tag_up_len    = np.linalg.norm(tag_corners[0] - tag_corners[3])
+            px_per_cm_r = tag_right_len / tag_len_cm
+            px_per_cm_u = tag_up_len    / tag_len_cm
 
-        # 3) 언샤프 마스크
-        blurred = cv2.GaussianBlur(gray, unsharp_ksize, unsharp_sigma)
-        unsharp = cv2.addWeighted(gray, 1.5, blurred, -0.5, 0)
+            roi_w = int(px_per_cm_r * board_width_cm  * 1.18)
+            roi_h = int(px_per_cm_u * board_height_cm * 1.18)
+            center_x, center_y = tag_corners.mean(axis=0)
 
-        # 4) CLAHE
-        clahe = cv2.createCLAHE(clipLimit=clahe_clip, tileGridSize=clahe_grid)
-        enhanced = clahe.apply(unsharp)
+            x_min = int(max(0, center_x - roi_w/5))
+            x_max = int(min(w, center_x + roi_w))
+            y_min = int(max(0, center_y - roi_h))
+            y_max = int(min(h, center_y + roi_h/5))
 
-        # 5) 양방향 필터
-        filtered = cv2.bilateralFilter(
-            enhanced,
-            d=bilateral_d,
-            sigmaColor=bilateral_sigma_color,
-            sigmaSpace=bilateral_sigma_space
+        # 4순위. 전체 화면
+        else:
+            x_min, y_min, x_max, y_max = 0, 0, w, h
+
+        # size 체크: 잘못된 범위일 때 전체 화면으로 fallback
+        if x_max <= x_min or y_max <= y_min:
+            x_min, y_min, x_max, y_max = 0, 0, w, h
+
+        roi = raw_gray[y_min:y_max, x_min:x_max]
+        return roi, (x_min, y_min, x_max, y_max)
+    
+
+class ROIFilter:
+    def __init__(
+        self,
+        # --- Binarization pipeline ---
+        clahe_clip_bin: float = 2.0,
+        clahe_tile_bin: Tuple[int,int] = (8,8),
+        adaptive_block: int = 21,
+        adaptive_C: int = 5,
+        # --- Enhancement pipeline ---
+        scale_enh: int = 2,
+        unsharp_ksize: Tuple[int,int] = (9,9),
+        unsharp_sigma: float = 10,
+        clahe_clip_enh: float = 3.0,
+        clahe_tile_enh: Tuple[int,int] = (8,8),
+        bilateral_d: int = 9,
+        bilateral_sigma_color: float = 75,
+        bilateral_sigma_space: float = 75,
+    ):
+        # Binarization params
+        self.clahe_clip_bin = clahe_clip_bin
+        self.clahe_tile_bin = clahe_tile_bin
+        self.adaptive_block = adaptive_block
+        self.adaptive_C = adaptive_C
+
+        # Enhancement params
+        self.scale_enh = scale_enh
+        self.unsharp_ksize = unsharp_ksize
+        self.unsharp_sigma = unsharp_sigma
+        self.clahe_clip_enh = clahe_clip_enh
+        self.clahe_tile_enh = clahe_tile_enh
+        self.bilateral_d = bilateral_d
+        self.bilateral_sigma_color = bilateral_sigma_color
+        self.bilateral_sigma_space = bilateral_sigma_space
+
+    def binarize(self, img: np.ndarray) -> np.ndarray:
+        """
+        1) Grayscale 변환  
+        2) CLAHE (명암 대비 향상)  
+        3) Adaptive Threshold 이진화  
+        4) Median Blur (소금·후추 노이즈 제거) 
+        5) 색 반전
+        """
+        # 1) Gray
+        if img.ndim == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img.copy()
+
+        # 2) CLAHE
+        clahe = cv2.createCLAHE(
+            clipLimit=self.clahe_clip_bin,
+            tileGridSize=self.clahe_tile_bin
+        )
+        gray = clahe.apply(gray)  # :contentReference[oaicite:6]{index=6}
+
+        # 3) Adaptive Threshold
+        bsize = max(3, self.adaptive_block)
+        if bsize % 2 == 0: bsize += 1
+        thresh = cv2.adaptiveThreshold(
+            gray, 255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            bsize,
+            self.adaptive_C
+        )  # :contentReference[oaicite:7]{index=7}
+
+        # 4) Noise removal
+        median = cv2.medianBlur(thresh, 3)
+
+        # 5) Invert colors
+        inverted = cv2.bitwise_not(median)
+
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5,5))
+        closed = cv2.morphologyEx(inverted, cv2.MORPH_CLOSE, kernel)
+
+        return closed
+
+    def enhance(self, img: np.ndarray) -> np.ndarray:
+        """
+        1) Upscale (크롭 후 확대)  
+        2) Unsharp Mask (선명도 향상)  
+        3) CLAHE  
+        4) Bilateral Filter (엣지 보존 스무딩)  
+        """
+        # 1) Upscale
+        up = cv2.resize(
+            img, None,
+            fx=self.scale_enh, fy=self.scale_enh,
+            interpolation=cv2.INTER_CUBIC
         )
 
-        return filtered
-    
-    
+        # 2) Unsharp mask
+        blur = cv2.GaussianBlur(up, self.unsharp_ksize, self.unsharp_sigma)
+        sharp = cv2.addWeighted(up, 1.5, blur, -0.5, 0)
+
+        # 3) CLAHE
+        clahe = cv2.createCLAHE(
+            clipLimit=self.clahe_clip_enh,
+            tileGridSize=self.clahe_tile_enh
+        )
+        enhanced = clahe.apply(sharp)
+
+        # 4) Bilateral
+        return cv2.bilateralFilter(
+            enhanced,
+            d=self.bilateral_d,
+            sigmaColor=self.bilateral_sigma_color,
+            sigmaSpace=self.bilateral_sigma_space
+        )  # :contentReference[oaicite:8]{index=8}

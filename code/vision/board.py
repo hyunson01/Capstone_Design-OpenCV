@@ -28,7 +28,7 @@ class BoardDetector:
         rect = self._detect_board(roi_gray, detect_params)
         return rect
 
-    def process(self, frame_gray, data, rect_override=None) -> BoardDetectionResult | None:
+    def process(self, frame_gray, detect_params, rect_override=None) -> BoardDetectionResult | None:
         if self._locked:
             # 저장된 H로 매 프레임 warp 다시 계산
             H = self._result.perspective_matrix
@@ -44,9 +44,9 @@ class BoardDetector:
         if rect_override is not None:
             rect = rect_override
         else:
-            if not isinstance(data, (list, tuple)):
+            if not isinstance(detect_params, (list, tuple)):
                 return self._result
-            rect = self._detect_board(frame_gray, data)
+            rect = self._detect_board(frame_gray, detect_params)
         
         if rect is not None:
             corners, width_px, height_px = self._get_board_pts(rect)
@@ -66,7 +66,6 @@ class BoardDetector:
             )
             return self._result
         else:
-            # print("[DEBUG] 보드 탐지 실패. 이전 결과 유지됨")
             return self._result
     
     def generate_coordinate_system(self):
@@ -223,25 +222,58 @@ class BoardDetector:
 
 
     # 내부 유틸 함수들
-    def _detect_board(self, gray, data):
-        brightness, min_aspect_ratio, max_aspect_ratio = data
-        _, thresh = cv2.threshold(gray, brightness, 255, cv2.THRESH_BINARY)
-        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    def _detect_board(self, gray, detect_params):
+        """
+        gray: 이미 이진화된 ROI
+        detect_params: (min_aspect_ratio, max_aspect_ratio)
+        """
+        bright, min_ar, max_ar, cos_value , extent_value, soild_value = detect_params
+        contours, _ = cv2.findContours(gray, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-        largest_rect = None
-        largest_area = 0
+        candidates = []
+        h_img, w_img = gray.shape
 
-        for contour in contours:
-            approx = cv2.approxPolyDP(contour, 0.02 * cv2.arcLength(contour, True), True)
-            if len(approx) == 4:
-                area = cv2.contourArea(approx)
-                x, y, w, h = cv2.boundingRect(approx)
-                aspect_ratio = float(w) / h
-                if area > 500 and min_aspect_ratio < aspect_ratio < max_aspect_ratio:
-                    largest_area = area
-                    largest_rect = approx
+        for cnt in contours:
+            # 1) 4점 근사 + 면적·종횡비 필터 (기존)
+            approx = cv2.approxPolyDP(cnt, 0.02*cv2.arcLength(cnt, True), True)
+            if len(approx) != 4:
+                continue
+            area = cv2.contourArea(approx)
+            if area < 500:
+                continue
+            x,y,w,h = cv2.boundingRect(approx)
+            ar = float(w)/h
+            if not (min_ar < ar < max_ar):
+                continue
 
-        return largest_rect
+            # 2) 각도가 직각에 가까운지 (벡터 내적)
+            pts = approx.reshape(4,2)
+            def angle(p0, p1, p2):
+                v0 = p0 - p1
+                v2 = p2 - p1
+                # cos θ = (v0·v2)/(||v0||·||v2||), 직각이면 0에 가까워짐
+                return abs(np.dot(v0, v2)) / (np.linalg.norm(v0)*np.linalg.norm(v2) + 1e-6)
+            angles_ok = all(angle(pts[i], pts[(i+1)%4], pts[(i+2)%4]) < cos_value for i in range(4))
+            if not angles_ok:
+                continue
+
+            # 3) extent / solidity 필터
+            hull = cv2.convexHull(cnt)
+            hull_area = cv2.contourArea(hull)
+            extent   = area / float(w*h)
+            solidity = area / float(hull_area + 1e-6)
+            # extent: contour_area / bounding_rect_area
+            # solidity: contour_area / convex_hull_area
+            if extent < extent_value or solidity < soild_value:
+                continue
+
+            candidates.append((approx, area))
+
+        # 최대 면적 후보 리턴
+        if not candidates:
+            return None
+        best, _ = max(candidates, key=lambda x:x[1])
+        return best
 
     def _get_board_pts(self, rect):
             pts = rect.reshape(4, 2).astype(np.float32)
@@ -276,64 +308,11 @@ class BoardDetector:
     def _get_board_origin(self, top_left):
         return np.array([top_left[0], top_left[1], 0], dtype=np.float32)
     
+    def _get_rid_black(self, warped):
+        gray_w = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
+        
+
+    
     @property
     def is_locked(self):
         return self._locked
-
-
-class ROIProcessor:
-    def __init__(
-        self,
-        clahe_clip=2.0,
-        clahe_tile=(8,8),
-        adaptive_block=21,
-        adaptive_C=5
-    ):
-        self.clahe_clip = clahe_clip
-        self.clahe_tile = clahe_tile
-        self.adaptive_block = adaptive_block
-        self.adaptive_C = adaptive_C
-        self.enable_clahe = True
-        self.enable_adaptive = True
-
-    def process(self, roi):
-        """
-        roi: input ROI, expected grayscale or color image
-        returns: preprocessed binarized ROI
-        """
-        if roi is None or roi.size == 0:
-            raise ValueError("Empty ROI passed to ROIProcessor")
-
-        # 1) 그레이스케일 변환
-        if len(roi.shape) == 3:
-            roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-        else:
-            roi_gray = roi.copy()
-
-        # 2) CLAHE 적용 (명암 대비 향상)
-        if self.enable_clahe:
-            clahe = cv2.createCLAHE(
-                clipLimit=self.clahe_clip,
-                tileGridSize=self.clahe_tile
-            )
-            roi_gray = clahe.apply(roi_gray)
-
-        # 3) Adaptive Threshold 이진화
-        if self.enable_adaptive:
-            block_size = max(3, self.adaptive_block)
-            if block_size % 2 == 0:
-                block_size += 1
-            roi_bin = cv2.adaptiveThreshold(
-                roi_gray, 255,
-                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                cv2.THRESH_BINARY,
-                block_size,
-                self.adaptive_C
-            )
-        else:
-            _, roi_bin = cv2.threshold(roi_gray, 127, 255, cv2.THRESH_BINARY)
-
-        # 4) 소금·후추 노이즈 제거
-        roi_bin = cv2.medianBlur(roi_bin, 3)
-
-        return roi_bin
