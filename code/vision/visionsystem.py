@@ -4,7 +4,7 @@ import math
 from typing import Optional, Tuple, Dict
 
 from vision.apriltag import AprilTagDetector
-from config import board_width_cm, board_height_cm, grid_row, grid_col, cell_size, cell_size_cm, tag_size, CORRECTION_COEF, NORTH_TAG_ID
+from config import board_width_cm, board_height_cm, grid_row, grid_col, cell_size, cell_size_cm, tag_size, CORRECTION_COEF, NORTH_TAG_ID, board_margin
 from vision.board import BoardDetectionResult, BoardDetector
 
 class VisionSystem:
@@ -16,7 +16,7 @@ class VisionSystem:
         self.grid_col = grid_col
         self.undistorter = undistorter
         self.last_valid_result = None
-        self.board = BoardDetector(board_width_cm, board_height_cm, grid_row, grid_col)
+        self.board = BoardDetector(board_width_cm, board_height_cm, grid_row, grid_col, board_margin)
         self.board_result: BoardDetectionResult | None = None
         self.frame_count = 0
         self.roi_filter = ROIFilter()

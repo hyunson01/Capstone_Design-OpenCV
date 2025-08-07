@@ -16,9 +16,10 @@ class BoardDetectionResult:
     found: bool = True
 
 class BoardDetector:
-    def __init__(self, board_width_cm: float, board_height_cm: float, grid_width: int, grid_height: int):
+    def __init__(self, board_width_cm: float, board_height_cm: float, grid_width: int, grid_height: int, board_margin: float):
         self.board_width_cm = board_width_cm
         self.board_height_cm = board_height_cm
+        self.board_margin = board_margin
         self._result = None
         self._locked = False
         self.grid_width = grid_width
@@ -82,19 +83,21 @@ class BoardDetector:
 
         # 2) dst_pts를 실제 보드 크기(cm)로 정의
         dst_pts = np.array([
-            [0.0,                 0.0                ],
-            [self.board_width_cm, 0.0                ],
+            [0, 0],
+            [self.board_width_cm, 0],
             [self.board_width_cm, self.board_height_cm],
-            [0.0,                 self.board_height_cm],
-        ], dtype=np.float32)
+            [0,                 self.board_height_cm]
+            ], dtype=np.float32)
 
         # 3) 픽셀→cm 매핑 행렬 계산 (metric homography)
         H_metric = cv2.getPerspectiveTransform(src_pts, dst_pts)
 
         # 4) 그리드별 중심점(cm 단위) 생성
         cell_centers = []
-        cw = self.board_width_cm  / self.grid_width
-        ch = self.board_height_cm / self.grid_height
+        inner_board_width_cm = self.board_width_cm - 2 * self.board_margin
+        inner_board_height_cm = self.board_height_cm - 2 * self.board_margin
+        cw = inner_board_width_cm  / self.grid_width
+        ch = inner_board_height_cm / self.grid_height
         for row in range(self.grid_height):
             for col in range(self.grid_width):
                 cx = (col + 0.5) * cw
@@ -102,9 +105,9 @@ class BoardDetector:
                 cell_centers.append((cx, cy))
 
         # 5) (선택) 그리드 선분도 cm 단위로 미리 계산
-        horizontal = [((0, i*ch), (self.board_width_cm, i*ch))
+        horizontal = [((0, i*ch), (inner_board_width_cm, i*ch))
                     for i in range(self.grid_height+1)]
-        vertical   = [((j*cw, 0), (j*cw, self.board_height_cm))
+        vertical   = [((j*cw, 0), (j*cw, inner_board_height_cm))
                     for j in range(self.grid_width+1)]
 
         return {
@@ -163,10 +166,6 @@ class BoardDetector:
         cv2.putText(vis, f"Right: {scale_right:.2f}cm/px",  (10, 80),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
 
-        # 7) 펼쳐진 보드 뷰를 창에 표시
-        # cv2.imshow("Warped Board Preview", vis)
-        cv2.waitKey(1)
-
     def reset(self):
         self._locked = False
         self._result = None
@@ -174,7 +173,6 @@ class BoardDetector:
     def get_result(self) -> BoardDetectionResult | None:
         return self._result
     
-    #!!! 외부에서 결과를 입력 받음. 꼭 이렇게 해야할까?
     def draw(self, frame, result: BoardDetectionResult):
         if result is None:
             return
@@ -203,19 +201,26 @@ class BoardDetector:
 
         # metric homography 역행렬 (cm→pixel)
         H_inv = np.linalg.inv(result.grid_reference["H_metric"])
+        m = self.board_margin
+        T = np.array([
+            [1, 0, m],
+            [0, 1, m],
+            [0, 0, 1],
+        ], dtype=np.float32)
+        H_inv_margin = H_inv @ T
 
         # cm 단위로 생성된 그리드 중심점 목록
         pts_cm = np.array(result.grid_reference["cell_centers"], dtype=np.float32).reshape(-1,1,2)
 
         # cm→pixel 좌표 변환
-        pts_px = cv2.perspectiveTransform(pts_cm, H_inv).reshape(-1,2)
+        pts_px = cv2.perspectiveTransform(pts_cm, H_inv_margin).reshape(-1,2)
 
         # (선택) 선분도 동일하게 변환
         mapped_lines = []
         for segs in result.grid_reference["grid_lines"].values():
             for p1_cm, p2_cm in segs:
                 seg = np.array([[p1_cm, p2_cm]], dtype=np.float32)
-                p1_px, p2_px = cv2.perspectiveTransform(seg, H_inv)[0]
+                p1_px, p2_px = cv2.perspectiveTransform(seg, H_inv_margin)[0]
                 mapped_lines.append((tuple(p1_px), tuple(p2_px)))
 
         return {"centers": pts_px, "lines": mapped_lines}

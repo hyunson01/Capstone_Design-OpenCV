@@ -50,11 +50,13 @@ camera_cfg = CAMERA_SETTINGS[CAMERA_ID]
 
 CAMERA_HEIGHT=147
 ROBOT_HEIGHT=9.1
-CORRECTION_COEF = (147-9.1)/147
+CORRECTION_COEF = (CAMERA_HEIGHT-ROBOT_HEIGHT)/CAMERA_HEIGHT
 
 # 보드 크기 (cm 단위)
 board_width_cm = 60
 board_height_cm = 60
+
+board_margin=1
 
 # 태그 정보
 tag_size = 0.044  # 태그 크기 (단위: 미터)
@@ -74,8 +76,8 @@ object_points = np.array([
 
 # 격자 배열 생성
 cell_size_cm = 15 # 격자 크기 (cm 단위)
-grid_row = int(board_height_cm / cell_size_cm) # 세로 행 수
-grid_col = int(board_width_cm / cell_size_cm) # 가로 열 수
+grid_row = int((board_height_cm-board_margin) / cell_size_cm) # 세로 행 수
+grid_col = int((board_width_cm-board_margin) / cell_size_cm) # 가로 열 수
 
 # 격자 시각화 크기
 cell_size = 50
