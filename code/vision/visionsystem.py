@@ -251,11 +251,13 @@ class VisionSystem:
             front_vec = pt_cm[0] - pt_cm[1]
 
             # 2) 태그 중심과 그리드 중심을 cm 좌표계로 투영
-            center_px = np.array(data["center"], dtype=np.float32).reshape(-1,1,2)
-            tag_cm = cv2.perspectiveTransform(center_px, H)[0][0]
+            if "corrected_center" not in data:
+                continue  # 보정값 없으면 스킵
+            X_corr, Y_corr = data["corrected_center"]
+            tag_corr_cm = np.array([X_corr, Y_corr])
             row, col = data["grid_position"]
-            grid_cm = grid_centers[row * self.grid_col + col]
-            dir_vec = tag_cm - np.array(grid_cm)
+            grid_cm = np.array(grid_centers[row * self.grid_col + col])
+            dir_vec = tag_corr_cm - grid_cm
 
             # 3) 각도 계산 (atan2: rad → deg)
             yaw_front = math.degrees(math.atan2(front_vec[1],  front_vec[0]))
@@ -316,7 +318,7 @@ class VisionSystem:
                         # 붉은 선
                         cv2.line(frame, grid_pt, corr_px_int, (0, 0, 255), 2)
 
-                        # 거리·각도 텍스트
+                        # 거리·각도 텍스트q     
                         dist = data.get("dist_cm")
                         rel = data.get("relative_angle_deg")
                         if dist is not None and rel is not None:

@@ -3,6 +3,8 @@ import os
 import cv2
 import numpy as np
 import subprocess 
+import threading
+import time
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 ICBS_PATH = os.path.join(CURRENT_DIR, '..', 'MAPF-ICBS', 'code')
@@ -12,13 +14,13 @@ sys.path.append(os.path.normpath(ICBS_PATH))
 from grid import load_grid
 from interface import grid_visual, slider_create, slider_value, draw_agent_points, draw_paths
 from config import grid_row, grid_col, cell_size, camera_cfg, IP_address_, MQTT_TOPIC_COMMANDS_ , MQTT_PORT , NORTH_TAG_ID, CORRECTION_COEF
-
 from vision.visionsystem import VisionSystem 
 from vision.camera import camera_open, Undistorter 
 from cbs.agent import Agent
 from cbs.pathfinder import PathFinder
-# from recieve_message import start_sequence,set_tag_info_provider
+from recieve_message import start_sequence,set_tag_info_provider, set_alignment_pending,alignment_pending, check_center_alignment_ok, check_north_alignment_ok, check_all_completed,start_auto_sequence
 from align import send_center_align, send_north_align # 중앙정렬, 북쪽정렬 함수
+from config import cell_size_cm
 
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -36,6 +38,8 @@ USE_MQTT = 0  # 0: 비사용, 1: 사용
 
 if USE_MQTT:
     import paho.mqtt.client as mqtt
+    from recieve_message import init_mqtt_client
+    init_mqtt_client()
 
     # 1) MQTT 클라이언트 생성
     client = mqtt.Client()
@@ -250,7 +254,7 @@ def path_to_commands(path, init_hd=0):
         elif diff == 3:
             cmds.append({'command': 'L90'})
         else:  # diff == 0 → 순수 전진
-            cmds.append({'command': 'F15_modeA'})
+            cmds.append({'command': f'F{cell_size_cm:.1f}_modeA'}) #1그리드 거리만큼 이동
 
         # 3) 헤딩 갱신
         hd = desired
@@ -312,10 +316,10 @@ def compute_cbs():
     }
 
     print("▶ 순차 전송 시작:", cmd_map)
-    # start_sequence(cmd_map)
+    start_sequence(cmd_map)
 
 
-
+#긴급 정지 함수
 def send_emergency_stop(client):
     print("!! Emergency Stop 명령 전송: 'S' to robots 1~4")
     for rid in range(1, 5):
@@ -323,11 +327,10 @@ def send_emergency_stop(client):
         client.publish(topic, "S")
         print(f"  → Published to {topic}")
     
-
-
 def main():
     # 초기 설정
     global agents, paths, manager, visualize, tag_info
+
 
     # 그리드 불러오기
     base_grid = load_grid(grid_row, grid_col)
@@ -350,7 +353,7 @@ def main():
             continue
 
         visionOutput = vision.process_frame(frame, detect_params)
-        # set_tag_info_provider(lambda: tag_info)
+        set_tag_info_provider(lambda: tag_info)
 
         if visionOutput is None:
             continue
@@ -391,6 +394,10 @@ def main():
             print("Reset all")
             agents.clear()
             paths.clear()
+        elif key == ord('m'):
+            new_mode = 'contour' if vision.board_mode == 'tag' else 'tag'
+            vision.set_board_mode(new_mode)
+            print(f"Board mode switched to: {new_mode}")
             
         elif key == ord('c'):
             if all(a.start and a.goal for a in agents):
@@ -408,12 +415,38 @@ def main():
             print(f"시각화 모드: {'ON' if vision.visualize else 'OFF'}")
         elif key == ord('s'):
             vision.start_roi_selection()
-        elif key == ord('x'):  # 북쪽정렬
-            send_north_align(client, tag_info, MQTT_TOPIC_COMMANDS_, NORTH_TAG_ID)
-        elif key == ord('a'):  # 중앙정렬
-            send_center_align(client, tag_info, MQTT_TOPIC_COMMANDS_)
+            
+        elif key == ord('x'):
+            unaligned = [rid for rid in PRESET_IDS if not check_north_alignment_ok(str(rid))]
+            for tag_id in unaligned:
+                set_alignment_pending(str(tag_id), "north")
+            if unaligned:
+                send_north_align(client, tag_info, MQTT_TOPIC_COMMANDS_, NORTH_TAG_ID,
+                                targets=unaligned, alignment_pending=alignment_pending)
+
+        elif key == ord('a'):
+            unaligned = [rid for rid in PRESET_IDS if not check_center_alignment_ok(str(rid))]
+            for tag_id in unaligned:
+                set_alignment_pending(str(tag_id), "center")  # ✅ 먼저 pending 등록
+            if unaligned:
+                send_center_align(client, tag_info, MQTT_TOPIC_COMMANDS_, targets=unaligned, 
+                                  alignment_pending=alignment_pending)
+                
         elif key == ord('t'):  # 긴급정지
             send_emergency_stop(client)
+
+
+        elif key == ord('d'):#자동 시퀀스
+            from recieve_message import start_auto_sequence
+            start_auto_sequence(
+                client, tag_info, PRESET_IDS, agents, MQTT_TOPIC_COMMANDS_, NORTH_TAG_ID,
+                set_alignment_pending, alignment_pending,
+                check_center_alignment_ok, check_north_alignment_ok,
+                send_center_align, send_north_align,
+                compute_cbs, 
+                check_all_completed
+            )
+
 
     cap.release()
     cv2.destroyAllWindows()
