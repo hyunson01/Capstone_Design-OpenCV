@@ -10,7 +10,7 @@ class Simulator:
         self.cell_size = cell_size
         self.robots = {}
         self.vis = self.create_grid()
-        self.paused = True
+        self.paused = False
         self.robot_info = {}
         self.robot_past_paths = {}
         self.random_mode_enabled = False
@@ -195,14 +195,14 @@ class Robot:
         self.start_pos = start_pos  # 보간 시작 좌표
         self.target_pos = start_pos # 보간 목표 좌표
         self.progress = 0.0         # 0.0~1.0 보간 진행도
-        self.speed = 0.1            # 1 tick당 이동 비율 (ex. 0.1 → 10 tick 동안 1칸 이동)
+        self.speed = 0.2            # 1 tick당 이동 비율 (ex. 0.1 → 10 tick 동안 1칸 이동)
         
         # 회전 관련
         self.direction = direction  # 초기 방향
             # 회전 보간
         self.rotating = False       # 회전 중인지 여부
         self.rotation_progress = 0.0
-        self.rotation_speed = 0.1   # 1 tick당 회전 비율 (ex. 0.1 → 10 tick 동안 90도 회전)
+        self.rotation_speed = 1.0   # 1 tick당 회전 비율 (ex. 0.1 → 10 tick 동안 90도 회전)
         self.rotation_dir = None      # "left" or "right"
 
         # 정지 관련

@@ -105,5 +105,56 @@ def send_north_align(client, tag_info, MQTT_TOPIC_COMMANDS_, NORTH_TAG_ID, targe
         print(f"▶ 북쪽정렬 명령 전송: Robot_{rid_str} → Δ={delta:.1f}° → {cmd}")
         client.publish(MQTT_TOPIC_COMMANDS_, json.dumps(payload, ensure_ascii=False))
 
+# 방향 정렬(기존 북쪽 정렬 대체)
+def send_direction_align(client, tag_info, MQTT_TOPIC_COMMANDS_, targets=None, alignment_pending=None):
+    """
+    가장 가까운 동/서/남/북(base_angle)에 맞춰 회전만 수행 (modeOnly)
+    VisionSystem에서 쓰는 동일한 로직으로 base_angle과 delta를 계산한다.
+    """
+    if targets is None:
+        targets = list(tag_info.keys())
+
+    for tag_id in targets:
+        rid_str = str(tag_id)
+
+        # pending 대상만 처리 (옵션)
+        if alignment_pending is not None and rid_str not in alignment_pending:
+            print(f"⏩ Robot_{rid_str} 는 방향정렬 대상 아님 → 건너뜀")
+            continue
+
+        data = tag_info.get(tag_id)
+        if data is None or data.get('status') != 'On':
+            print(f"   ✗ Robot_{rid_str} 상태 비정상 → 건너뜀")
+            continue
+
+        yaw_front = data.get("yaw_front_deg", None)
+        if yaw_front is None:
+            print(f"   ✗ Robot_{rid_str} yaw_front_deg 없음")
+            continue
+
+        # 0~360 정규화
+        yaw_deg = (yaw_front + 360) % 360
+
+        # VisionSystem과 동일한 기준 (주의: 여기서는 E=0, N=90, S=270, W=180)
+        direction_angles = [90, 0, 270, 180]   # N, E, S, W (이름은 필요 없음)
+        diffs = [abs(((yaw_deg - a + 180) % 360) - 180) for a in direction_angles]
+        base_angle = direction_angles[diffs.index(min(diffs))]
+
+        # 기준 각도 대비 오차 (–180~+180 → 실제로는 ±45 이내)
+        delta = ((yaw_deg - base_angle + 180) % 360) - 180
+
+        rot_deg = round(abs(delta), 1)
+        cmd_letter = 'L' if delta > 0 else 'R'   # 북정렬과 동일한 부호 처리
+        cmd = f"{cmd_letter}{rot_deg}_modeOnly"
+
+        payload = {
+            "commands": [{
+                "robot_id": rid_str,
+                "command_count": 1,
+                "command_set": [{"command": cmd}]
+            }]
+        }
+        print(f"▶ 방향정렬 명령 전송: Robot_{rid_str} → target={base_angle}°, Δ={delta:.1f}° → {cmd}")
+        client.publish(MQTT_TOPIC_COMMANDS_, json.dumps(payload, ensure_ascii=False))
 
 

@@ -1,7 +1,6 @@
 import time, json
 import paho.mqtt.client as mqtt
 from datetime import datetime
-from config import CELL_TIME
 
 MQTT_SERVER = "192.168.140.132"
 MQTT_PORT = 1883

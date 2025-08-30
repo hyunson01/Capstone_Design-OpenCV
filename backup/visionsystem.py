@@ -1,15 +1,11 @@
-
 import cv2
 import numpy as np
 import math
 from typing import Optional, Tuple, Dict
-from types import SimpleNamespace
-
 
 from vision.apriltag import AprilTagDetector
-from config import board_width_cm, board_height_cm, grid_row, grid_col, cell_size, cell_size_cm, tag_size, CORRECTION_COEF, NORTH_TAG_ID, board_margin, critical_dist
+from config import board_width_cm, board_height_cm, grid_row, grid_col, cell_size, cell_size_cm, tag_size, CORRECTION_COEF, NORTH_TAG_ID, board_margin
 from vision.board import BoardDetectionResult, BoardDetector
-from vision.obstacle import ObstacleDetector
 
 class VisionSystem:
     def __init__(self, undistorter, visualize=True):
@@ -36,14 +32,6 @@ class VisionSystem:
         self.target_display_size = (960, 540)
         self.display_size = None
 
-        # 장애물 검출
-        self.obstacle_detector = ObstacleDetector(self.grid_row, self.grid_col)  # ★ 추가
-        self._last_obstacle_grid = None
-        self._last_obstacle_debug = None
-
-        self.show_pairwise_distances = True       # 화면에 거리 표시 ON/OFF
-        self.proximity_threshold_cm = critical_dist        # 임계 거리(색상 기준)
-        self.exclude_ids_for_distance = {NORTH_TAG_ID}
     # =====수동 ROI 선택===== 
     
     def start_roi_selection(self):
@@ -55,20 +43,17 @@ class VisionSystem:
     def mouse_callback(self, event, x, y, flags, param):
         if not (self.user_selecting_roi and event == cv2.EVENT_LBUTTONDOWN and self.display_size and self.frame_shape):
             return
-
-        # 표시창 좌표 -> 원본 프레임 좌표
         x0, y0 = (x, y)
         if self.display_size:
             x0, y0 = self.to_original_coords(x, y)
 
         if self.manual_roi_top_left is None:
-            self.manual_roi_top_left = (int(x0), int(y0))
+            self.manual_roi_top_left = (x0, y0)
             print(f"[ROI] Top-left set to: {self.manual_roi_top_left}")
         else:
-            self.manual_roi_bottom_right = (int(x0), int(y0))
+            self.manual_roi_bottom_right = (x0, y0)
             print(f"[ROI] Bottom-right set to: {self.manual_roi_bottom_right}")
             self.user_selecting_roi = False
-
     
     # ===== 수동 ROI 선택 끝 =====
         
@@ -105,10 +90,19 @@ class VisionSystem:
         tags = self.correct_tag_coordinates(raw_tags, (roi_x_min, roi_y_min, roi_x_max - roi_x_min, roi_y_max - roi_y_min), scale)
         self.tags.update(tags, self.frame_count, new_camera_matrix, self.frame_shape)
             
-        # 4) ROI 동기화 + 보드 처리 (자동 탐색 경로 사용)
-        self.board.process(roi_frame, detect_params, roi_offset=(roi_x_min, roi_y_min))
+        # 4) ROI 내에서 보드 검출
+        board_filtered_frame = self.roi_filter.binarize(roi_frame)
+        board_corners = self.board.detect(board_filtered_frame, detect_params)
+        if board_corners is not None:
+            # ROI 성공 → override 좌표로 풀프레임 검출
+            rect_full = board_corners.copy()
+            rect_full[:,0,0] += roi_x_min
+            rect_full[:,0,1] += roi_y_min
+            self.board.process(raw_gray, detect_params, rect_override=rect_full)
+        else:
+            # ROI 실패 → 순수 풀프레임 검출
+            self.board.process(raw_gray, detect_params, rect_override=None)
         self.board_result = self.board.get_result()
-
                 
         # 5) 보드를 이용해 태그 처리 및 업데이트
         if self.board_result:
@@ -138,11 +132,6 @@ class VisionSystem:
         
         # 보드가 lock 상태이고 결과가 있을 때
         if self.board.is_locked and self.board_result is not None:
-            occ = self.obstacle_detector.update_from_board(self.board_result)
-            if occ is not None:
-                # True=장애물 → 1, False=빈칸 → 0
-                self._last_obstacle_grid = (occ.astype('uint8'))
-                self._last_obstacle_debug = self.obstacle_detector.get_debug_warped()
             # 화면 크기로 리사이즈된 warp 이미지
             cv2.imshow("Warped Board Preview", self.board_result.warped_resized)
 
@@ -156,43 +145,11 @@ class VisionSystem:
                                 tags: list,
                                 roi_range: tuple[int, int, int, int],
                                 scale: float = 2) -> list:
-        """
-        - ROI 크롭/확대(scale)와 좌표 오프셋(roi_range)을 반영해 tag.center/corners를 원본 프레임 좌표계로 보정
-        - 입력이 Detection 객체 또는 dict여도 모두 처리
-        - 반환은 속성 기반(tag_id, center, corners)을 보장 (AprilTagDetector.update 호환)
-        """
         x0, y0, _, _ = roi_range
-        offset = np.array([x0, y0], dtype=np.float32)
-        out: list = []
-
         for tag in tags:
-            # case 1) Detection 객체 (pupil_apriltags)
-            if hasattr(tag, "tag_id") and hasattr(tag, "center") and hasattr(tag, "corners"):
-                center = np.asarray(tag.center, dtype=np.float32) / scale + offset
-                corners = np.asarray(tag.corners, dtype=np.float32) / scale + offset
-                # 원본 객체를 직접 mutate 해도 되지만, 안전하게 새 객체 생성
-                out.append(SimpleNamespace(
-                    tag_id = int(tag.tag_id),
-                    center = center,
-                    corners = corners
-                ))
-                continue
-
-            # case 2) dict 형태 (id/tag_id, center, corners)
-            if isinstance(tag, dict):
-                tag_id = tag.get("tag_id", tag.get("id"))
-                if tag_id is None:
-                    # tag_id 없으면 스킵
-                    continue
-                center = np.asarray(tag.get("center"), dtype=np.float32) / scale + offset
-                corners = np.asarray(tag.get("corners"), dtype=np.float32) / scale + offset
-                out.append(SimpleNamespace(
-                    tag_id = int(tag_id),
-                    center = center,
-                    corners = corners
-                ))
-                continue
-        return out
+            tag.center = tag.center / scale + np.array([x0, y0])
+            tag.corners = tag.corners / scale + np.array([x0, y0])
+        return tags
 
     # 외부 이벤트 처리용 API들
     def lock_board(self):
@@ -213,13 +170,6 @@ class VisionSystem:
     
     def get_fps(self):
         return self.fps
-
-    def get_obstacle_grid(self):
-        """
-        반환: np.ndarray(uint8) shape=(rows, cols), 값 {0(빈칸), 1(장애물)} 또는 None
-        """
-        return self._last_obstacle_grid
-
 
     # def correct_tag_position_polar(self, X, Y, Cx, Cy, coef=None):
     #     if coef is None:
@@ -269,7 +219,6 @@ class VisionSystem:
         H = self.board_result.grid_reference["H_metric"]
         grid_centers = self.board_result.grid_reference["cell_centers"]
 
-        # 1) 기본 각도들 계산 (그리드 기준 등)
         for tag_id, data in tag_infos.items():
             corners = data.get("corners")
             if corners is None or "grid_position" not in data:
@@ -283,22 +232,22 @@ class VisionSystem:
             # 2) 태그 중심과 그리드 중심을 cm 좌표계로 투영
             if "center" not in data:
                 continue  # 보정값 없으면 스킵
-            X_corr, Y_corr = data["center"]
-            tag_corr_cm = np.array([X_corr, Y_corr])
+            X_cm, Y_cm = data["center"]
+            tag_cm = np.array([X_cm, Y_cm])
             row, col = data["grid_position"]
             grid_cm = np.array(grid_centers[row * self.grid_col + col])
-            dir_vec = tag_corr_cm - grid_cm
+            dir_vec = tag_cm - grid_cm
 
             # 3) 각도 계산 (atan2: rad → deg)
             yaw_front = math.degrees(math.atan2(front_vec[1],  front_vec[0]))
             yaw_dir   = math.degrees(math.atan2(dir_vec[1],    dir_vec[0]))
 
             # 4) 상대 각도 저장
-            data["yaw_front_deg"]       = yaw_front
-            data["yaw_to_grid_deg"]     = yaw_dir
-            data["relative_angle_deg"]  = ((yaw_dir - yaw_front + 180) % 360) - 180
+            data["yaw_front_deg"]    = yaw_front # 태그 정면 기준 yaw
+            data["yaw_to_grid_deg"]  = yaw_dir   # 태그 중심→그리드 중심 기준 yaw  
+            data["relative_angle_deg"] = ((yaw_dir - yaw_front + 180) % 360) - 180 # 정면과 그리드 중심 기준 yaw 각도 차이
 
-            # 4방위 스냅(+오차) 계산
+            # 5) 4방위 기준 yaw 계산    
             yaw_deg = (yaw_front + 360) % 360
             direction_names   = ["N", "W", "S", "E"]
             direction_angles  = [90, 0, 270, 180]
@@ -307,12 +256,11 @@ class VisionSystem:
             base_dir   = direction_names[min_idx]
             base_angle = direction_angles[min_idx]
             delta = ((yaw_deg - base_angle + 180) % 360) - 180
+            
+            data["heading_base_dir"]    = base_dir   # 4방위 이름
+            data["heading_base_angle"]  = base_angle # 4방위 기준 각도
+            data["heading_offset_deg"]  = delta      # 태그 정면 기준 yaw에서 4방위까지 오차 각도
 
-            data["heading_base_dir"]    = base_dir
-            data["heading_base_angle"]  = base_angle
-            data["heading_offset_deg"]  = delta
-
-        # 2) 북쪽 기준 (yaw, yaw_front) 차이 계산
         north = tag_infos.get(NORTH_TAG_ID)
         if north is not None and north.get('status') == 'On':
             north_yaw = north.get('yaw')
@@ -326,14 +274,14 @@ class VisionSystem:
                 cur_yaw = data.get('yaw')
                 if cur_yaw is not None and north_yaw is not None:
                     delta = ((cur_yaw - north_yaw + math.pi) % (2 * math.pi)) - math.pi
-                    data['yaw_to_north_rad'] = delta
-                    data['yaw_to_north_deg'] = math.degrees(delta)
+                    data['yaw_to_north_rad'] = delta # 북쪽 기준 각도(라디안)
+                    data['yaw_to_north_deg'] = math.degrees(delta) # 북쪽 기준 각도(도)
 
                 # (b) 정면(yaw_front_deg) 기반
                 cur_front = data.get('yaw_front_deg')
                 if cur_front is not None and north_front is not None:
                     delta_front_deg = ((cur_front - north_front + 180) % 360) - 180
-                    data['yaw_front_to_north_deg'] = delta_front_deg
+                    data['yaw_front_to_north_deg'] = delta_front_deg # 북쪽까지 각도(도)
 
     def to_original_coords(self, x, y):
             orig_h, orig_w = self.frame_shape
@@ -342,122 +290,65 @@ class VisionSystem:
             orig_y = int(y * orig_h / disp_h)
             return orig_x, orig_y
 
-                
+            
     def draw_tag_overlay(self, frame, tag_info):
         for tag_id, data in tag_info.items():
             if data.get("status") != "On":
                 continue
 
-            board_tag = self.tags.get_board_tag()
-            if board_tag is not None and tag_id == board_tag['id']:
+            # 픽셀 표시는 그대로
+            cx_raw, cy_raw = data.get("center_raw", (None, None))
+            if cx_raw is None or self.board_result is None:
                 continue
-
-            # 원래 태그 위치(빨간 원)
-            cx_px, cy_px = data.get("center_raw", (None, None))
-            if cx_px is None or self.board_result is None:
-                continue
-            center_raw = (int(cx_px), int(cy_px))
+            center_raw = (int(cx_raw), int(cy_raw))
             cv2.circle(frame, center_raw, 6, (0, 0, 255), 2)
 
-            # 보정 중심(파란 원)
-            corr_x_px, corr_y_px = data.get("center", (None, None))
-            if corr_x_px is None or corr_y_px is None:
+            cx, cy = data.get("center", (None, None))
+            if cx is None:
                 continue
-            center = (int(corr_x_px), int(corr_y_px))
+            center = (int(cx), int(cy))
             cv2.circle(frame, center, 6, (255, 0, 0), 2)
 
-            # 그리드 중심과 보정된 좌표를 잇는 선 그리기 및 거리/각도 표시
-            if self.board_result and self.board_result.grid_reference and \
-               center is not None and data.get("grid_position") is not None:
+            if self.board_result and self.board_result.grid_reference and data.get("grid_position") is not None:
                 ref = self.board_result.grid_reference
                 H_inv = np.linalg.inv(ref["H_metric"])
-                row, col = data.get("grid_position", (None, None))
-                if row is not None:
-                    idx = row * self.grid_col + col
-                    if idx < len(ref["cell_centers"]):
-                        # cm → 픽셀 변환
-                        grid_cm = np.array([ref["cell_centers"][idx]], dtype=np.float32).reshape(-1, 1, 2)
-                        gx, gy = cv2.perspectiveTransform(grid_cm, H_inv)[0][0]
-                        grid_pt = (int(gx), int(gy))
+                row, col = data["grid_position"]
+                idx = row * self.grid_col + col
+                if idx < len(ref["cell_centers"]):
+                    grid_cm = np.array([ref["cell_centers"][idx]], dtype=np.float32).reshape(-1,1,2)
+                    gx, gy = cv2.perspectiveTransform(grid_cm, H_inv)[0][0]
+                    grid_pt = (int(gx), int(gy))
 
-                        # 붉은 선
-                        cv2.line(frame, grid_pt, center, (0, 0, 255), 2)
+                    cv2.line(frame, grid_pt, center, (0, 0, 255), 2)
 
-                        # 거리·각도 텍스트     
-                        dist = data.get("dist_cm")
-                        rel = data.get("relative_angle_deg")
-                        if dist is not None and rel is not None:
-                            deg = int(abs(round(rel)))
-                            LR = f"L{deg}" if rel < 0 else f"R{deg}"
-                            text = f"{LR}, {dist:.1f}cm"
-                            cv2.putText(frame, text,
-                                        (center[0] + 5, center[1] + 50),
-                                        cv2.FONT_HERSHEY_SIMPLEX,
-                                        0.5, (0, 0, 255), 1)
-                            
-                        # 북쪽 기준 yaw_front 차이 표기 (사전 계산값 사용)
-                        n_front = data.get("yaw_front_to_north_deg")
-                        if n_front is not None:
-                            text = f"N: {n_front:+.1f}°"
-                            cv2.putText(frame, text,
-                                        (center[0] + 5, center[1] + 65),
-                                        cv2.FONT_HERSHEY_SIMPLEX,
-                                        0.5, (255, 255, 0), 1)
+                    dist = data.get("dist_cm")
+                    rel  = data.get("relative_angle_deg")
+                    if dist is not None and rel is not None:
+                        deg = int(abs(round(rel)))
+                        LR  = f"L{deg}" if rel < 0 else f"R{deg}"
+                        cv2.putText(frame, f"{LR}, {dist:.1f}cm",
+                                    (center[0] + 5, center[1] + 50),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,255), 1)
 
-                        # 헤딩 방향 표시 (사전 계산된 스냅/오차 사용)
-                        base_dir = data.get("heading_base_dir")
-                        delta = data.get("heading_offset_deg")
-                        if base_dir is not None and delta is not None:
-                            if delta < -45 or delta > 45:
-                                heading_str = f"{base_dir}:ERR"
-                            else:
-                                sign = "+" if delta >= 0 else "-"
-                                heading_str = f"{base_dir}:{sign}{abs(round(delta, 1)):.1f}"
-                            cv2.putText(frame, f"H: {heading_str}",
-                                        (center[0] + 5, center[1] + 80),
-                                        cv2.FONT_HERSHEY_SIMPLEX,
-                                        0.5, (0, 255, 255), 1)
-                                        
-                        if getattr(self, "show_pairwise_distances", True):
-                            import math
+                    n_front = data.get("yaw_front_to_north_deg")
+                    if n_front is not None:
+                        cv2.putText(frame, f"N: {n_front:+.1f}°",
+                                    (center[0] + 5, center[1] + 65),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,0), 1)
+                        
+                    base_dir = data.get("heading_base_dir")
+                    delta    = data.get("heading_offset_deg")
+                    if base_dir is not None and delta is not None:
+                        if delta < -45 or delta > 45:
+                            heading_str = f"{base_dir}:ERR"
+                        else:
+                            sign = "+" if delta >= 0 else "-"
+                            heading_str = f"{base_dir}:{sign}{abs(round(delta, 1)):.1f}"
+                        cv2.putText(frame, f"H: {heading_str}",
+                                    (center[0] + 5, center[1] + 80),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,255), 1)
 
-                            ex = getattr(self, "exclude_ids_for_distance", set())
-                            items = []
-                            for tid, d in tag_info.items():
-                                if tid in ex:                      # ← 북쪽 태그 등 제외
-                                    continue
-                                if d.get("status") != "On":
-                                    continue
-                                c_px = d.get("center")
-                                c_cm = d.get("corrected_center")
-                                if c_px is None or c_cm is None:
-                                    continue
-                                items.append(((int(c_px[0]), int(c_px[1])),
-                                                (float(c_cm[0]), float(c_cm[1]))))
-
-                            thr = float(self.proximity_threshold_cm)
-
-                            for i in range(len(items)):
-                                p1_px, c1_cm = items[i]
-                                for j in range(i + 1, len(items)):
-                                    p2_px, c2_cm = items[j]
-
-                                    dist = math.hypot(c1_cm[0] - c2_cm[0], c1_cm[1] - c2_cm[1])
-                                    is_close = dist <= thr
-
-                                    mx = (p1_px[0] + p2_px[0]) // 2
-                                    my = (p1_px[1] + p2_px[1]) // 2
-                                    pos = (mx + 8, my - 8)
-
-                                    label = f"{dist:.1f}cm"
-                                    label_color = (0, 0, 255) if is_close else (0, 255, 0)
-                                    label_thick = 3 if is_close else 1
-                                    font_scale = 0.8
-                                    cv2.putText(frame, label, pos, cv2.FONT_HERSHEY_SIMPLEX,
-                                                font_scale, (0, 0, 0), label_thick + 2)
-                                    cv2.putText(frame, label, pos, cv2.FONT_HERSHEY_SIMPLEX,
-                                                font_scale, label_color, label_thick)
-                
+    
     def _compute_roi(
         self,
         raw_gray: np.ndarray,
@@ -478,15 +369,15 @@ class VisionSystem:
         h, w = frame_shape[:2]
 
         # 1순위. lock된 보드
-        # if board.is_locked and board_result is not None:
-        #     corners = board_result.corners
-        #     xs = corners[:, 0].astype(int)
-        #     ys = corners[:, 1].astype(int)
-        #     x_min, x_max = xs.min(), xs.max()
-        #     y_min, y_max = ys.min(), ys.max()
+        if board.is_locked and board_result is not None:
+            corners = board_result.corners
+            xs = corners[:, 0].astype(int)
+            ys = corners[:, 1].astype(int)
+            x_min, x_max = xs.min(), xs.max()
+            y_min, y_max = ys.min(), ys.max()
 
         # 2순위. 수동 ROI 선택
-        if manual_tl and manual_br:
+        elif manual_tl and manual_br:
             x1, y1 = manual_tl
             x2, y2 = manual_br
             x_min, x_max = min(x1, x2), max(x1, x2)
@@ -575,7 +466,7 @@ class ROIFilter:
             clipLimit=self.clahe_clip_bin,
             tileGridSize=self.clahe_tile_bin
         )
-        gray = clahe.apply(gray)
+        gray = clahe.apply(gray)  # :contentReference[oaicite:6]{index=6}
 
         # 3) Adaptive Threshold
         bsize = max(3, self.adaptive_block)
@@ -586,7 +477,7 @@ class ROIFilter:
             cv2.THRESH_BINARY,
             bsize,
             self.adaptive_C
-        )
+        )  # :contentReference[oaicite:7]{index=7}
 
         # 4) Noise removal
         median = cv2.medianBlur(thresh, 3)
@@ -630,4 +521,4 @@ class ROIFilter:
             d=self.bilateral_d,
             sigmaColor=self.bilateral_sigma_color,
             sigmaSpace=self.bilateral_sigma_space
-        )
+        )  # :contentReference[oaicite:8]{index=8}

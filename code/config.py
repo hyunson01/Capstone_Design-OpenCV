@@ -9,7 +9,7 @@ MQTT_TOPIC_COMMANDS_ = "command/transfer"
 
 NORTH_TAG_ID = 12  # 바닥에 고정된 북쪽 태그 겸 빨간 ROI생성 기준 태그
 
-
+critical_dist =12
 
 # ===카메라 매개변수 (캘리브레이션된 값 사용)===
 # 선택할 카메라 ID
@@ -55,8 +55,8 @@ Dist_Correction_Coefficient = 1 #화면상의 거리와 실제거리 보정계�
 
 
 # 보드 크기 (cm 단위)
-board_width_cm = 60
-board_height_cm = 60
+board_width_cm = 90
+board_height_cm = 90
 
 board_margin=0
 

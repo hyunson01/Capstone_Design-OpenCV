@@ -113,7 +113,7 @@ def main():
                 if "corners" in info:
                     pts = info["corners"].astype(int).reshape(-1,1,2)
                     cv2.polylines(proc, [pts], True, (0,255,0), 2)
-                    cx,cy = map(int, info["center"])
+                    cx,cy = map(int, info["corrected_center"])
                     cv2.putText(proc, f"ID:{tid}", (cx,cy-10),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,0), 2)
 

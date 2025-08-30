@@ -1,6 +1,7 @@
 import sys
 import os
 import random
+from collections import deque
 
 # MAPF-ICBS\code 경로를 추가
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -12,7 +13,6 @@ import numpy as np
 from grid import load_grid
 from interface import grid_visual, draw_agent_info_window
 from cbs.agent import Agent
-from visualize import Animation
 from simulator import Simulator
 from fake_mqtt import FakeMQTTBroker
 from commandSendTest3 import CommandSet
@@ -28,6 +28,10 @@ broker = FakeMQTTBroker()
 pathfinder = None
 grid_array = None
 selected_robot_id = None # 생성할 때 선택된 로봇 ID
+
+pending_steps = {}          # { robot_id: deque([(r,c), ...]) }
+barrier_inflight = {}    # 직전에 보낸 스텝을 아직 수행 중인 로봇들
+BARRIER_MODE = True         # 끄고 싶으면 False
 
 delay_input_mode = False
 delay_input_buffer = ""
@@ -144,14 +148,6 @@ def mouse_event(event, x, y, flags, param):
             print(f"Agent {sorted(ready_ids)} 준비 완료. CBS 실행.")
             compute_cbs()
 
-# #에이전트 초기화
-# def create_agent(start=None, goal=None, delay=None, agent_id=None):
-#     if agent_id is None:
-#         agent_id = len(agents)
-#     if delay is None:
-#         delay = random.randint(0, 5)
-#     return Agent(id=agent_id, start=start, goal=goal, delay=delay)
-
 #에이전트 시작 위치를 로봇 현재 위치로 설정
 def get_start_from_robot():
     for agent in agents:
@@ -178,92 +174,136 @@ def get_direction_from_robot():
 
             agent.initial_dir = expected_dir  # CommandSet 생성 시 참조할 수 있게 저장
 
+def _expected_dir(robot):
+    directions = ["north", "east", "south", "west"]
+    idx = directions.index(robot.direction)
+    if robot.rotating and getattr(robot, "rotation_dir", None):
+        delta = 1 if robot.rotation_dir == "right" else -1
+        return directions[(idx + delta) % 4]
+    return robot.direction
 
+def send_next_step(robot_id):
+    """로봇이 유휴면 다음 셀로 이동하는 '한 스텝짜리' CommandSet 전송"""
+    if robot_id not in pending_steps or not pending_steps[robot_id]:
+        return False
+    if robot_id not in sim.robots:
+        return False
+
+    robot = sim.robots[robot_id]
+    if robot.moving or robot.rotating:
+        return False
+
+    cur_pos = tuple(map(int, sim.robots[robot_id].get_position()))
+    while pending_steps[robot_id] and tuple(pending_steps[robot_id][0]) == cur_pos:
+        pending_steps[robot_id].popleft()
+    if not pending_steps[robot_id]:
+        return False
+
+    # 한 칸만 보장(방어 로직)
+    target = tuple(pending_steps[robot_id][0])
+    manh = abs(target[0]-cur_pos[0]) + abs(target[1]-cur_pos[1])
+    if manh > 1:
+        step = (cur_pos[0] + (1 if target[0] > cur_pos[0] else -1 if target[0] < cur_pos[0] else 0),
+                cur_pos[1] + (1 if target[1] > cur_pos[1] else -1 if target[1] < cur_pos[1] else 0))
+    else:
+        step = pending_steps[robot_id].popleft()
+
+    cs = CommandSet(str(robot_id), [cur_pos, step], initial_dir=_expected_dir(robot))
+    broker.send_command_sets([cs])
+
+    # 🔹 이번 배리어 사이클에서 이 로봇의 목표칸을 기록
+    barrier_inflight[robot_id] = step
+    return True
+
+def _all_idle(ids):
+    # 모두 '대기(이동/회전 중 아님)' 상태인지 확인
+    for rid in ids:
+        if rid not in sim.robots:
+            return False
+        r = sim.robots[rid]
+        if r.moving or r.rotating:
+            return False
+    return True
+
+def dispatch_if_barrier_ready():
+    # 1) 직전에 보낸 스텝의 '도착'만 정리 (idle이지만 아직 출발칸이면 유지)
+    for rid, tgt in list(barrier_inflight.items()):
+        if rid not in sim.robots:
+            barrier_inflight.pop(rid, None)
+            continue
+        r = sim.robots[rid]
+        pos = tuple(map(int, r.get_position()))
+        if (not r.moving and not r.rotating) and pos == tgt:
+            barrier_inflight.pop(rid, None)  # 도착 완료 → 배리어 탈퇴
+
+    # 2) 아직 누가 이동 중이면 다음 턴 대기
+    if barrier_inflight:
+        return False
+
+    # 3) 다음 스텝 후보(남은 칸 있는 로봇)
+    active = [rid for rid, dq in pending_steps.items() if dq]
+    if not active:
+        return False
+
+    # 4) 모두 '대기' 상태일 때에만 동시에 한 칸 보냄
+    if not _all_idle(active):
+        return False
+
+    for rid in active:
+        send_next_step(rid)
+    return True
+
+# ⬇️ cbs_tester.py 상단 헬퍼들 근처에 추가
+def expand_to_unit_steps(path):
+    """[(r,c), (r,c+3)] 같은 구간을 [(r,c+1),(r,c+2),(r,c+3)]로 펼침"""
+    out = []
+    for i in range(len(path) - 1):
+        r1, c1 = path[i]
+        r2, c2 = path[i + 1]
+        dr = 0 if r2 == r1 else (1 if r2 > r1 else -1)
+        dc = 0 if c2 == c1 else (1 if c2 > c1 else -1)
+        # 대각선 방지(있다면 경로 생성 단계 문제)
+        if dr != 0 and dc != 0:
+            raise ValueError(f"Diagonal segment in path: {path[i]}->{path[i+1]}")
+        rr, cc = r1, c1
+        while (rr, cc) != (r2, c2):
+            rr += dr
+            cc += dc
+            out.append((rr, cc))
+    return out
 
 #CBS 계산
 def compute_cbs():
-    global paths, pathfinder, grid_array
+    global paths, pathfinder, grid_array, pending_steps, barrier_inflight
 
     grid_array = load_grid(grid_row, grid_col)
     get_start_from_robot()
-    if random_mode_enabled:
-        assigned = False
-        for agent in agents:
-            if agent.start and agent.goal is None:
-                pos = agent.start
-                empty_cells = [(r, c) for r in range(grid_array.shape[0])
-                                            for c in range(grid_array.shape[1])
-                                            if grid_array[r, c] == 0 and (r, c) != pos]
-                if empty_cells:
-                    agent.goal = random.choice(empty_cells)
-                    assigned = True
 
     if pathfinder is None:
         pathfinder = PathFinder(grid_array)
 
-    # # CBS 계산 전 모든 delay를 1회용으로 처리
-    # for agent in agents:
-    #     if agent.start is not None and agent.goal is not None:
-    #         if agent.delay > 0:
-    #             print(f"[딜레이 적용] Agent {agent.id} → delay {agent.delay} 적용 후 제거")
-    #             delay = agent.delay
-    #             agent.delay = 0  # 딜레이는 1회만 적용되도록 초기화
-    #         else:
-    #             delay = 0
-    #         agent._applied_delay = delay  # 내부 추적용, 없어도 됨
-
     new_agents = pathfinder.compute_paths(agents)
     new_paths = [agent.get_final_path() for agent in new_agents]
-
     if not new_paths:
         print("No solution found.")
         return
 
     paths.clear()
     paths.extend(new_paths)
-
     print("Paths updated via PathFinder.")
-    
+
     for agent in agents:
         agent.delay = 0
 
-    # 로봇 명령 전송
-    command_sets = []
+    pending_steps.clear()
     for agent in new_agents:
-        print(f"[DEBUG] Agent {agent.id}: delay={agent.delay}, path={agent.get_final_path()}")
         if agent.id in sim.robots:
-            robot = sim.robots[agent.id]
-
-            # 예상 방향 계산 (회전 보간 포함)
-            directions = ["north", "east", "south", "west"]
-            idx = directions.index(robot.direction)
-
-            if robot.rotating and robot.rotation_dir:
-                delta = 1 if robot.rotation_dir == "right" else -1
-                expected_dir = directions[(idx + delta) % 4]
-            else:
-                expected_dir = robot.direction
-
-            
-            command_sets.append(CommandSet(str(agent.id), agent.get_final_path(), initial_dir=expected_dir))
+            fp = agent.get_final_path() or []
+            unit_steps = expand_to_unit_steps(fp) if len(fp) > 1 else []
+            pending_steps[agent.id] = deque(unit_steps)
 
 
-# 전송할 JSON 문자열을 미리 출력
-    try:
-        payload = json.dumps({"commands": [cs.to_dict() for cs in command_sets]}, indent=2, ensure_ascii=False)
-        print("!!!전송 예정 명령 세트:")
-        print(payload)
-    except Exception as e:
-        print(f"명령 세트 변환 중 오류 발생: {e}")
-
-    # # 실제 전송 시도
-    # try:
-    #     CommandSet.send_command_sets(command_sets)
-    # except Exception as e:
-    #     print(f"명령 전송 중 오류 발생: {e}")
-
-    broker.send_command_sets(command_sets)
-        
+    # 시뮬레이터 표시 갱신
     if sim:
         for agent in new_agents:
             if agent.id in sim.robots:
@@ -281,17 +321,6 @@ def draw_paths(vis_img, paths):
             overlay = vis_img.copy()
             cv2.rectangle(overlay, (x, y), (x + cell_size, y + cell_size), color, -1)
             cv2.addWeighted(overlay, 0.3, vis_img, 0.7, 0, vis_img)
-    
-    # # 2. 추가: sim.robot_past_paths에 저장된 지나간 경로도 색칠
-    # if sim:
-    #     for robot_id, past_path in sim.robot_past_paths.items():
-    #         color = COLORS[robot_id % len(COLORS)]
-    #         for pos in past_path:
-    #             r, c = pos
-    #             x, y = c * cell_size, r * cell_size
-    #             overlay = vis_img.copy()
-    #             cv2.rectangle(overlay, (x, y), (x + cell_size, y + cell_size), color, -1)
-    #             cv2.addWeighted(overlay, 0.3, vis_img, 0.7, 0, vis_img)
 
 # 로봇 도착 시 재계산
 def on_robot_arrival(robot_id, pos):
@@ -339,8 +368,6 @@ def main():
                 cv2.circle(vis, (x + cell_size//2, y + cell_size//2), 5, (0, 255, 0), -1)
                 cv2.putText(vis, f"S{agent.id}", (x + 2, y + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
 
-
-
         for agent in agents:
             if agent.goal:
                 x, y = agent.goal[1] * cell_size, agent.goal[0] * cell_size
@@ -361,6 +388,7 @@ def main():
         cv2.imshow("CBS Grid", combined)
         
         sim.run_once()
+        dispatch_if_barrier_ready()
         
         # 키보드 입력 처리
         key = cv2.waitKey(100)
@@ -399,17 +427,7 @@ def main():
             print("Reset all")
             agents.clear()
             paths.clear()
-        elif key == ord('a'):
-            if paths:
-                print("Playing animation of last CBS result...")
-                animation = Animation(grid_array.astype(bool),
-                              [agent.start for agent in agents],
-                              [agent.goal for agent in agents],
-                              [agent.get_final_path() for agent in agents])
-                animation.show()
-                animation.save("demo.gif", speed=1.0)
-            else:
-                print("No paths available to animate.")
+
         elif key == ord(' '):  # ✅ Spacebar 눌러서 일시정지
             sim.paused = not sim.paused
             print("Paused" if sim.paused else "Resumed")
